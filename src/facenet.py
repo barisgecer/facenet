@@ -324,8 +324,8 @@ class ImageClass():
   
 def get_dataset(paths, has_class_directories=True):
     dataset = []
-    for path in paths.split(':'):
-        path_exp = os.path.expanduser(path)
+    for path in paths.split(';'):
+        path_exp = os.path.expanduser(paths)
         classes = os.listdir(path_exp)
         classes.sort()
         nrof_classes = len(classes)
@@ -539,5 +539,5 @@ def put_images_on_grid(images, shape=(16,8)):
 
 def write_arguments_to_file(args, filename):
     with open(filename, 'w') as f:
-        for key, value in vars(args).iteritems():
+        for key, value in vars(args).items():
             f.write('%s: %s\n' % (key, str(value)))
