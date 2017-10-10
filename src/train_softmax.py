@@ -153,7 +153,7 @@ def main(args):
         print('Building training graph')
         
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch, args.keep_probability, 
+        prelogits, _ = network.inference(image_batch, args.keep_probability,
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size, 
             weight_decay=args.weight_decay)
         logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None, 
@@ -376,13 +376,13 @@ def parse_arguments(argv):
         help='Path to the data directory containing aligned face patches. Multiple directories are separated with colon.',
         default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
     parser.add_argument('--model_def', type=str,
-        help='Model definition. Points to a module containing the definition of the inference graph.', default='models.inception_resnet_v1')
+        help='Model definition. Points to a module containing the definition of the inference graph.', default='models.inception_resnet_light')
     parser.add_argument('--max_nrof_epochs', type=int,
-        help='Number of epochs to run.', default=500)
+        help='Number of epochs to run.', default=80)
     parser.add_argument('--batch_size', type=int,
         help='Number of images to process in a batch.', default=90)
     parser.add_argument('--image_size', type=int,
-        help='Image size (height, width) in pixels.', default=160)
+        help='Image size (height, width) in pixels.', default=64)
     parser.add_argument('--epoch_size', type=int,
         help='Number of batches per epoch.', default=1000)
     parser.add_argument('--embedding_size', type=int,
@@ -395,22 +395,22 @@ def parse_arguments(argv):
     parser.add_argument('--random_rotate', 
         help='Performs random rotations of training images.', action='store_true')
     parser.add_argument('--keep_probability', type=float,
-        help='Keep probability of dropout for the fully connected layer(s).', default=1.0)
+        help='Keep probability of dropout for the fully connected layer(s).', default=0.8)
     parser.add_argument('--weight_decay', type=float,
-        help='L2 weight regularization.', default=0.0)
+        help='L2 weight regularization.', default=5e-5)
     parser.add_argument('--center_loss_factor', type=float,
         help='Center loss factor.', default=0.0)
     parser.add_argument('--center_loss_alfa', type=float,
         help='Center update rate for center loss.', default=0.95)
     parser.add_argument('--optimizer', type=str, choices=['ADAGRAD', 'ADADELTA', 'ADAM', 'RMSPROP', 'MOM'],
-        help='The optimization algorithm to use', default='ADAGRAD')
+        help='The optimization algorithm to use', default='ADAM')
     parser.add_argument('--learning_rate', type=float,
         help='Initial learning rate. If set to a negative value a learning rate ' +
-        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.1)
+        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.01)
     parser.add_argument('--learning_rate_decay_epochs', type=int,
-        help='Number of epochs between learning rate decay.', default=100)
+        help='Number of epochs between learning rate decay.', default=1)
     parser.add_argument('--learning_rate_decay_factor', type=float,
-        help='Learning rate decay factor.', default=1.0)
+        help='Learning rate decay factor.', default=0.95)
     parser.add_argument('--moving_average_decay', type=float,
         help='Exponential decay for tracking of training parameters.', default=0.9999)
     parser.add_argument('--seed', type=int,
