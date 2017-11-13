@@ -325,7 +325,7 @@ class ImageClass():
 def get_dataset(paths, has_class_directories=True):
     dataset = []
     for path in paths.split(';'):
-        path_exp = os.path.expanduser(paths)
+        path_exp = os.path.expanduser(path)
         classes = os.listdir(path_exp)
         classes.sort()
         nrof_classes = len(classes)
