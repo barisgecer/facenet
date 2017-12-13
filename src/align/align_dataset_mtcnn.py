@@ -34,6 +34,7 @@ import numpy as np
 import facenet.src.facenet
 import facenet.src.align.detect_face
 import random
+import imageio
 from time import sleep
 
 def main(args):
@@ -107,14 +108,25 @@ def main(args):
                                 det = det[index,:]
                             det = np.squeeze(det)
                             bb = np.zeros(4, dtype=np.int32)
-                            bb[0] = np.maximum(det[0]-args.margin/2, 0)
-                            bb[1] = np.maximum(det[1]-args.margin/2, 0)
-                            bb[2] = np.minimum(det[2]+args.margin/2, img_size[1])
-                            bb[3] = np.minimum(det[3]+args.margin/2, img_size[0])
+                            height = det[3] - det[1]
+                            width = det[2] - det[0]
+                            if height > width:
+                                det[2] = det[2] + (height-width)/2
+                                det[0] = det[0] - (height-width)/2
+                            else:
+                                det[3] = det[3] + (width-height)/2
+                                det[1] = det[1] - (width-height)/2
+
+                            size = det[3] - det[1]
+                            diff = size * (args.image_size / (args.image_size - args.margin) - 1)
+                            bb[0] = np.maximum(det[0]-diff/2, 0)
+                            bb[1] = np.maximum(det[1]-diff/2, 0)
+                            bb[2] = np.minimum(det[2]+diff/2, img_size[1])
+                            bb[3] = np.minimum(det[3]+diff/2, img_size[0])
                             cropped = img[bb[1]:bb[3],bb[0]:bb[2],:]
                             scaled = misc.imresize(cropped, (args.image_size, args.image_size), interp='bilinear')
                             nrof_successfully_aligned += 1
-                            misc.imsave(output_filename, scaled)
+                            imageio.imwrite(output_filename, scaled, quality=100)
                             text_file.write('%s %d %d %d %d\n' % (output_filename, bb[0], bb[1], bb[2], bb[3]))
                         else:
                             print('Unable to align "%s"' % image_path)
