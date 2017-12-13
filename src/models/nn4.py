@@ -78,7 +78,6 @@ def inference(images, keep_probability, phase_train=True, weight_decay=0.0, bott
     net = tf.nn.dropout(net, keep_probability)
     endpoints['dropout'] = net
 
-    net = slim.fully_connected(net, bottleneck_layer_size, activation_fn=None,
-                               scope='Bottleneck', reuse=False)
+    net = slim.fully_connected(net, bottleneck_layer_size, activation_fn=None, scope='Bottleneck', reuse=False)
     
     return net, endpoints

@@ -116,7 +116,6 @@ def main(args):
                             else:
                                 det[3] = det[3] + (width-height)/2
                                 det[1] = det[1] - (width-height)/2
-
                             size = det[3] - det[1]
                             diff = size * (args.image_size / (args.image_size - args.margin) - 1)
                             bb[0] = np.maximum(det[0]-diff/2, 0)
