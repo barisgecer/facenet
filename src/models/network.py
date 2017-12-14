@@ -148,19 +148,19 @@ def batch_norm(x, phase_train):
 def inception(inp, inSize, ks, o1s, o2s1, o2s2, o3s1, o3s2, o4s1, o4s2, o4s3, poolType, name, 
               phase_train=True, use_batch_norm=True, weight_decay=0.0):
   
-    print('name = ', name)
-    print('inputSize = ', inSize)
-    print('kernelSize = {3,5}')
-    print('kernelStride = {%d,%d}' % (ks,ks))
-    print('outputSize = {%d,%d}' % (o2s2,o3s2))
-    print('reduceSize = {%d,%d,%d,%d}' % (o2s1,o3s1,o4s2,o1s))
-    print('pooling = {%s, %d, %d, %d, %d}' % (poolType, o4s1, o4s1, o4s3, o4s3))
-    if (o4s2>0):
-        o4 = o4s2
-    else:
-        o4 = inSize
-    print('outputSize = ', o1s+o2s2+o3s2+o4)
-    print()
+    # print('name = ', name)
+    # print('inputSize = ', inSize)
+    # print('kernelSize = {3,5}')
+    # print('kernelStride = {%d,%d}' % (ks,ks))
+    # print('outputSize = {%d,%d}' % (o2s2,o3s2))
+    # print('reduceSize = {%d,%d,%d,%d}' % (o2s1,o3s1,o4s2,o1s))
+    # print('pooling = {%s, %d, %d, %d, %d}' % (poolType, o4s1, o4s1, o4s3, o4s3))
+    # if (o4s2>0):
+    #     o4 = o4s2
+    # else:
+    #     o4 = inSize
+    # print('outputSize = ', o1s+o2s2+o3s2+o4)
+    # print()
     
     net = []
     
