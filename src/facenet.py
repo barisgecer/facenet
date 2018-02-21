@@ -90,10 +90,12 @@ def center_loss(features, label, alfa, nrof_classes):
 def get_image_paths_and_labels(dataset):
     image_paths_flat = []
     labels_flat = []
+    confidence_flat = []
     for i in range(len(dataset)):
         image_paths_flat += dataset[i].image_paths
         labels_flat += [i] * len(dataset[i].image_paths)
-    return image_paths_flat, labels_flat
+        confidence_flat += dataset[i].confidence
+    return image_paths_flat, labels_flat, confidence_flat
 
 def shuffle_examples(image_paths, labels):
     shuffle_list = list(zip(image_paths, labels))
@@ -312,9 +314,10 @@ def get_learning_rate_from_file(filename, epoch):
 
 class ImageClass():
     "Stores the paths to images for a given class"
-    def __init__(self, name, image_paths):
+    def __init__(self, name, image_paths, confidence):
         self.name = name
         self.image_paths = image_paths
+        self.confidence = confidence
   
     def __str__(self):
         return self.name + ', ' + str(len(self.image_paths)) + ' images'
@@ -326,15 +329,19 @@ def get_dataset(paths, has_class_directories=True):
     dataset = []
     for path in paths.split(';'):
         path_exp = os.path.expanduser(path)
-        classes = os.listdir(path_exp)
+        classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
         classes.sort()
         nrof_classes = len(classes)
+        if os.path.isfile(path + '\\confidence_scores.csv'):
+            confidence = 0.5 #TODO: read the file
+        else:
+            confidence = 1.0
+
         for i in range(nrof_classes):
             class_name = classes[i]
             facedir = os.path.join(path_exp, class_name)
             image_paths = get_image_paths(facedir)
-            dataset.append(ImageClass(class_name, image_paths))
-  
+            dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
     return dataset
 
 def get_image_paths(facedir):

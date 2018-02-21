@@ -89,7 +89,7 @@ def main(args):
         global_step = tf.Variable(0, trainable=False)
         
         # Get a list of image paths and their labels
-        image_list, label_list = facenet.get_image_paths_and_labels(train_set)
+        image_list, label_list, confidence_list = facenet.get_image_paths_and_labels(train_set)
         assert len(image_list)>0, 'The dataset should not be empty'
         
         # Create a queue that produces indices into the image_list and label_list 
@@ -109,17 +109,19 @@ def main(args):
         image_paths_placeholder = tf.placeholder(tf.string, shape=(None,1), name='image_paths')
 
         labels_placeholder = tf.placeholder(tf.int64, shape=(None,1), name='labels')
+
+        confidence_placeholder = tf.placeholder(tf.float32, shape=(None,1), name='confidence')
         
         input_queue = data_flow_ops.FIFOQueue(capacity=100000,
-                                    dtypes=[tf.string, tf.int64],
-                                    shapes=[(1,), (1,)],
+                                    dtypes=[tf.string, tf.int64, tf.float32],
+                                    shapes=[(1,), (1,), (1,)],
                                     shared_name=None, name=None)
-        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder], name='enqueue_op')
+        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder, confidence_placeholder], name='enqueue_op')
         
         nrof_preprocess_threads = 4
         images_and_labels = []
         for _ in range(nrof_preprocess_threads):
-            filenames, label = input_queue.dequeue()
+            filenames, label, confidence = input_queue.dequeue()
             images = []
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
@@ -136,16 +138,17 @@ def main(args):
                 #pylint: disable=no-member
                 image.set_shape((args.image_size, args.image_size, 3))
                 images.append(tf.image.per_image_standardization(image))
-            images_and_labels.append([images, label])
+            images_and_labels.append([images, label, confidence])
     
-        image_batch, label_batch = tf.train.batch_join(
+        image_batch, label_batch, confidence_batch = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
-            shapes=[(args.image_size, args.image_size, 3), ()], enqueue_many=True,
+            shapes=[(args.image_size, args.image_size, 3), (), ()], enqueue_many=True,
             capacity=4 * nrof_preprocess_threads * args.batch_size,
             allow_smaller_final_batch=True)
         image_batch = tf.identity(image_batch, 'image_batch')
         image_batch = tf.identity(image_batch, 'input')
         label_batch = tf.identity(label_batch, 'label_batch')
+        confidence_batch = tf.identity(confidence_batch, 'confidence_batch')
         
         print('Total number of classes: %d' % nrof_classes)
         print('Total number of examples: %d' % len(image_list))
@@ -175,12 +178,12 @@ def main(args):
         # Calculate the average cross entropy loss across the batch
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=label_batch, logits=logits, name='cross_entropy_per_example')
-        cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+        cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
         
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([cross_entropy_mean] + regularization_losses, name='total_loss')
+        total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
         train_op = facenet.train(total_loss, global_step, args.optimizer, 
@@ -188,6 +191,16 @@ def main(args):
         
         # Create a saver
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=3)
+
+        # Restore saver
+
+        if args.pretrained_model:
+            restore_vars = []
+            for var in tf.all_variables():
+                if not 'Logits/' in var.op.name:
+                    restore_vars.append(var)
+            restorer = tf.train.Saver(restore_vars)
+
 
         # Build the summary operation based on the TF collection of Summaries.
         summary_op = tf.summary.merge_all()
@@ -205,7 +218,8 @@ def main(args):
 
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
-                saver.restore(sess, pretrained_model)
+                restorer.restore(sess, pretrained_model)
+                sess.run(tf.assign(global_step,0))
 
             # Training and validation loop
             print('Running training')
@@ -214,7 +228,7 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
                 # Train for one epoch
-                train(args, sess, epoch, image_list, label_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder,
+                train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
                     learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
                     total_loss, train_op, summary_op, summary_writer, regularization_losses, args.learning_rate_schedule_file)
 
@@ -223,8 +237,8 @@ def main(args):
 
                 # Evaluate on LFW
                 if args.lfw_dir:
-                    evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phase_train_placeholder, batch_size_placeholder, 
-                        embeddings, label_batch, lfw_paths, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
+                    evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+                        embeddings, label_batch, lfw_paths, confidence_list, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
     return model_dir
   
 def find_threshold(var, percentile):
@@ -258,7 +272,7 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
 
     return filtered_dataset
   
-def train(args, sess, epoch, image_list, label_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, 
+def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
       learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
       loss, train_op, summary_op, summary_writer, regularization_losses, learning_rate_schedule_file):
     batch_number = 0
@@ -271,11 +285,13 @@ def train(args, sess, epoch, image_list, label_list, index_dequeue_op, enqueue_o
     index_epoch = sess.run(index_dequeue_op)
     label_epoch = np.array(label_list)[index_epoch]
     image_epoch = np.array(image_list)[index_epoch]
+    confidence_epoch = np.array(confidence_list)[index_epoch]
     
     # Enqueue one epoch of image paths and labels
+    confidence_array = np.expand_dims(np.array(confidence_epoch),1)
     labels_array = np.expand_dims(np.array(label_epoch),1)
     image_paths_array = np.expand_dims(np.array(image_epoch),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
 
     # Training loop
     train_time = 0
@@ -299,16 +315,17 @@ def train(args, sess, epoch, image_list, label_list, index_dequeue_op, enqueue_o
     summary_writer.add_summary(summary, step)
     return step
 
-def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phase_train_placeholder, batch_size_placeholder, 
-        embeddings, labels, image_paths, actual_issame, batch_size, nrof_folds, log_dir, step, summary_writer):
+def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+        embeddings, labels, image_paths, confidence_list, actual_issame, batch_size, nrof_folds, log_dir, step, summary_writer):
     start_time = time.time()
     # Run forward pass to calculate embeddings
     print('Runnning forward pass on LFW images')
     
     # Enqueue one epoch of image paths and labels
+    confidence_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     labels_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     image_paths_array = np.expand_dims(np.array(image_paths),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
     
     embedding_size = embeddings.get_shape()[1]
     nrof_images = len(actual_issame)*2
