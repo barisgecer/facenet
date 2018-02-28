@@ -180,7 +180,7 @@ def main(args):
         print('Building training graph')
         
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch,image_batch_syn, args.keep_probability,
+        prelogits, _ = network.inference2(image_batch,image_batch_syn, args.keep_probability,
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size, 
             weight_decay=args.weight_decay)
 
