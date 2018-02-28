@@ -30,7 +30,7 @@ import tensorflow.contrib.slim as slim
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 
-def inference(images, keep_probability, phase_train=True, weight_decay=0.0, bottleneck_layer_size=128,reuse=False):
+def inference(images,images_syn, keep_probability, phase_train=True, weight_decay=0.0, bottleneck_layer_size=128,reuse=False):
     """ Define an inference network for face recognition based 
            on inception modules using batch normalization
     
@@ -38,6 +38,19 @@ def inference(images, keep_probability, phase_train=True, weight_decay=0.0, bott
       images: The images to run inference on, dimensions batch_size x height x width x channels
       phase_train: True if batch normalization should operate in training mode
     """
+    with tf.variable_scope('InceptionResnetV1_syn', 'InceptionResnetV1_syn', [images_syn], reuse=reuse):
+        endpoints = {}
+        net_syn = conv(images_syn, 3, 64, 7, 7, 2, 2, 'SAME', 'conv1_7x7', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
+        endpoints['conv1_syn'] = net_syn
+        net_syn = mpool(net_syn,  3, 3, 2, 2, 'SAME', 'pool1')
+        endpoints['pool1_syn'] = net_syn
+        net_syn = conv(net_syn,  64, 64, 1, 1, 1, 1, 'SAME', 'conv2_1x1', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
+        endpoints['conv2_1x1_syn'] = net_syn
+        net_syn = conv(net_syn,  64, 192, 3, 3, 1, 1, 'SAME', 'conv3_3x3', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
+        endpoints['conv3_3x3_syn'] = net_syn
+        net_syn = mpool(net_syn,  3, 3, 2, 2, 'SAME', 'pool3')
+        endpoints['pool3_syn'] = net_syn
+
     with tf.variable_scope('InceptionResnetV1', 'InceptionResnetV1', [images], reuse=reuse):
         endpoints = {}
         net = conv(images, 3, 64, 7, 7, 2, 2, 'SAME', 'conv1_7x7', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
@@ -51,7 +64,7 @@ def inference(images, keep_probability, phase_train=True, weight_decay=0.0, bott
         net = mpool(net,  3, 3, 2, 2, 'SAME', 'pool3')
         endpoints['pool3'] = net
 
-        net = inception(net, 192, 1, 64, 96, 128, 16, 32, 3, 32, 1, 'MAX', 'incept3a', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
+        net = inception(tf.concat([net,net_syn],0), 192, 1, 64, 96, 128, 16, 32, 3, 32, 1, 'MAX', 'incept3a', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
         endpoints['incept3a'] = net
         net = inception(net, 256, 1, 64, 96, 128, 32, 64, 3, 64, 1, 'MAX', 'incept3b', phase_train=phase_train, use_batch_norm=True, weight_decay=weight_decay)
         endpoints['incept3b'] = net
