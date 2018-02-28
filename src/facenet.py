@@ -324,7 +324,37 @@ class ImageClass():
   
     def __len__(self):
         return len(self.image_paths)
-  
+
+def get_syn_dataset(paths, has_class_directories=True):
+    dataset = []
+    for path in paths.split(';'):
+        path_exp = os.path.expanduser(path)
+        classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
+        classes.sort()
+        nrof_classes = len(classes)
+        con_matrix = np.transpose(np.genfromtxt(path + '\\confidence_scores.csv', dtype=str,defaultfmt='%s %s %s %s', delimiter=" "))
+        con_paths = con_matrix[0]
+        con_classes = np.array([],dtype=int)
+        con_images = np.array([],dtype=int)
+        for per_path in con_paths:
+            con_classes = np.append(con_classes, int(per_path[len(path) + 1:len(path) + 6]))
+            con_images = np.append(con_images, int(per_path[len(path) + 7:len(path) + 12]))
+
+        d_score = (con_matrix[1]).astype(float)
+        s_score = (con_matrix[2]).astype(float)
+        c_score = (con_matrix[3]).astype(float)
+        beta = 4
+        eps = 0.5
+        confidence = eps*np.exp(-c_score/beta)
+
+        for i in range(nrof_classes):
+            class_name = classes[i]
+            facedir = os.path.join(path_exp, class_name)
+            image_paths = get_image_paths(facedir)
+            dataset.append(ImageClass(class_name, image_paths, confidence[np.where(con_classes==int(classes[i]))]))
+
+    return dataset
+
 def get_dataset(paths, has_class_directories=True):
     dataset = []
     for path in paths.split(';'):
@@ -332,32 +362,13 @@ def get_dataset(paths, has_class_directories=True):
         classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
         classes.sort()
         nrof_classes = len(classes)
-        if os.path.isfile(path + '\\confidence_scores.csv'):
-            con_matrix = np.transpose(np.genfromtxt(path + '\\confidence_scores.csv', dtype=str,defaultfmt='%s %s %s %s', delimiter=" "))
-            con_paths = con_matrix[0]
-            con_classes = np.array([],dtype=int)
-            con_images = np.array([],dtype=int)
-            for per_path in con_paths:
-                con_classes = np.append(con_classes, int(per_path[len(path) + 1:len(path) + 6]))
-                con_images = np.append(con_images, int(per_path[len(path) + 7:len(path) + 12]))
-
-            d_score = (con_matrix[1]).astype(float)
-            s_score = (con_matrix[2]).astype(float)
-            c_score = (con_matrix[3]).astype(float)
-            beta = 4
-            eps = 0.5
-            confidence = eps*np.exp(-c_score/beta)
-        else:
-            confidence = 1.0
+        confidence = 1.0
 
         for i in range(nrof_classes):
             class_name = classes[i]
             facedir = os.path.join(path_exp, class_name)
             image_paths = get_image_paths(facedir)
-            if os.path.isfile(path + '\\confidence_scores.csv'):
-                dataset.append(ImageClass(class_name, image_paths, confidence[np.where(con_classes==int(classes[i]))]))
-            else:
-                dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
+            dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
 
     return dataset
 

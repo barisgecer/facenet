@@ -64,11 +64,15 @@ def main(args):
 
     np.random.seed(seed=args.seed)
     random.seed(args.seed)
-    train_set = facenet.get_dataset(args.data_dir)
+    real_train_set = facenet.get_dataset(args.data_dir)
+    syn_train_set = facenet.get_dataset(args.syn_data_dir)
     if args.filter_filename:
-        train_set = filter_dataset(train_set, os.path.expanduser(args.filter_filename), 
+        real_train_set = filter_dataset(real_train_set, os.path.expanduser(args.filter_filename),
             args.filter_percentile, args.filter_min_nrof_images_per_class)
-    nrof_classes = len(train_set)
+        syn_train_set = filter_dataset(syn_train_set, os.path.expanduser(args.filter_filename),
+            args.filter_percentile, args.filter_min_nrof_images_per_class)
+    nrof_classes = len(real_train_set)
+    nrof_classes_syn = len(syn_train_set)
     
     print('Model directory: %s' % model_dir)
     print('Log directory: %s' % log_dir)
@@ -89,11 +93,14 @@ def main(args):
         global_step = tf.Variable(0, trainable=False)
         
         # Get a list of image paths and their labels
-        image_list, label_list, confidence_list = facenet.get_image_paths_and_labels(train_set)
-        assert len(image_list)>0, 'The dataset should not be empty'
-        
+        image_list, label_list, confidence_list = facenet.get_image_paths_and_labels(real_train_set)
+        image_list_syn, label_list_syn, confidence_list_syn = facenet.get_image_paths_and_labels(syn_train_set)
+        assert len(image_list) > 0, 'The dataset should not be empty'
+        assert len(image_list_syn) > 0, 'The dataset should not be empty'
+
         # Create a queue that produces indices into the image_list and label_list 
         labels = ops.convert_to_tensor(label_list, dtype=tf.int32)
+        labels_syn = ops.convert_to_tensor(label_list_syn, dtype=tf.int32)
         range_size = array_ops.shape(labels)[0]
         index_queue = tf.train.range_input_producer(range_size, num_epochs=None,
                              shuffle=True, seed=None, capacity=32)
@@ -111,60 +118,81 @@ def main(args):
         labels_placeholder = tf.placeholder(tf.int64, shape=(None,1), name='labels')
 
         confidence_placeholder = tf.placeholder(tf.float32, shape=(None,1), name='confidence')
+
+        image_paths_placeholder_syn = tf.placeholder(tf.string, shape=(None,1), name='image_paths_syn')
+
+        labels_placeholder_syn = tf.placeholder(tf.int64, shape=(None,1), name='labels_syn')
+
+        confidence_placeholder_syn = tf.placeholder(tf.float32, shape=(None,1), name='confidence_syn')
         
         input_queue = data_flow_ops.FIFOQueue(capacity=100000,
-                                    dtypes=[tf.string, tf.int64, tf.float32],
-                                    shapes=[(1,), (1,), (1,)],
+                                    dtypes=[tf.string, tf.int64, tf.float32,tf.string, tf.int64, tf.float32],
+                                    shapes=[(1,), (1,), (1,),(1,), (1,), (1,)],
                                     shared_name=None, name=None)
-        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder, confidence_placeholder], name='enqueue_op')
+        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder, confidence_placeholder,image_paths_placeholder_syn,labels_placeholder_syn,confidence_placeholder_syn], name='enqueue_op')
         
         nrof_preprocess_threads = 4
         images_and_labels = []
         for _ in range(nrof_preprocess_threads):
-            filenames, label, confidence = input_queue.dequeue()
-            images = []
-            for filename in tf.unstack(filenames):
-                file_contents = tf.read_file(filename)
-                image = tf.image.decode_image(file_contents, channels=3)
-                if args.random_rotate:
-                    image = tf.py_func(facenet.random_rotate_image, [image], tf.uint8)
-                if args.random_crop:
-                    image = tf.random_crop(image, [args.image_size, args.image_size, 3])
-                else:
-                    image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
-                if args.random_flip:
-                    image = tf.image.random_flip_left_right(image)
-    
-                #pylint: disable=no-member
-                image.set_shape((args.image_size, args.image_size, 3))
-                images.append(tf.image.per_image_standardization(image))
-            images_and_labels.append([images, label, confidence])
-    
-        image_batch, label_batch, confidence_batch = tf.train.batch_join(
+            filenames, label, confidence, filenames_syn, label_syn, confidence_syn = input_queue.dequeue()
+
+            def getimages(filenames):
+                images = []
+                for filename in tf.unstack(filenames):
+                    file_contents = tf.read_file(filename)
+                    image = tf.image.decode_image(file_contents, channels=3)
+                    if args.random_rotate:
+                        image = tf.py_func(facenet.random_rotate_image, [image], tf.uint8)
+                    if args.random_crop:
+                        image = tf.random_crop(image, [args.image_size, args.image_size, 3])
+                    else:
+                        image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
+                    if args.random_flip:
+                        image = tf.image.random_flip_left_right(image)
+
+                    #pylint: disable=no-member
+                    image.set_shape((args.image_size, args.image_size, 3))
+                    images.append(tf.image.per_image_standardization(image))
+                return images
+
+            images_and_labels.append([getimages(filenames), label, confidence,getimages(filenames_syn), label_syn, confidence_syn])
+
+        image_batch, label_batch, confidence_batch, image_batch_syn, label_batch_syn, confidence_batch_syn = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
-            shapes=[(args.image_size, args.image_size, 3), (), ()], enqueue_many=True,
+            shapes=[(args.image_size, args.image_size, 3), (), (),(args.image_size, args.image_size, 3),(),()], enqueue_many=True,
             capacity=4 * nrof_preprocess_threads * args.batch_size,
             allow_smaller_final_batch=True)
         image_batch = tf.identity(image_batch, 'image_batch')
         image_batch = tf.identity(image_batch, 'input')
         label_batch = tf.identity(label_batch, 'label_batch')
         confidence_batch = tf.identity(confidence_batch, 'confidence_batch')
-        
+
+        image_batch_syn = tf.identity(image_batch_syn, 'image_batch_syn')
+        image_batch_syn = tf.identity(image_batch_syn, 'input_syn')
+        label_batch_syn = tf.identity(label_batch_syn, 'label_batch_syn')
+        confidence_batch_syn = tf.identity(confidence_batch_syn, 'confidence_batch_syn')
+
         print('Total number of classes: %d' % nrof_classes)
+        print('Total number of syn classes: %d' % nrof_classes_syn)
         print('Total number of examples: %d' % len(image_list))
+        print('Total number of syn examples: %d' % len(image_list_syn))
         
         print('Building training graph')
         
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch, args.keep_probability,
+        prelogits, _ = network.inference(tf.concat([image_batch,image_batch_syn],0), args.keep_probability,
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size, 
             weight_decay=args.weight_decay)
-        logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None, 
+
+        logits = slim.fully_connected(prelogits, len(real_train_set), activation_fn=None,
                 weights_initializer=tf.truncated_normal_initializer(stddev=0.1), 
                 weights_regularizer=slim.l2_regularizer(args.weight_decay),
                 scope='Logits', reuse=False)
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
+        embeddings_real, embeddings_syn = tf.split(embeddings,2)
+
+
 
         # Add center loss
         if args.center_loss_factor>0.0:
@@ -175,15 +203,18 @@ def main(args):
             args.learning_rate_decay_epochs*args.epoch_size, args.learning_rate_decay_factor, staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
 
+        logits_real, logits_syn = tf.split(logits,2)
         # Calculate the average cross entropy loss across the batch
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=label_batch, logits=logits, name='cross_entropy_per_example')
+            labels=label_batch, logits=logits_real, name='cross_entropy_per_example')
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
+        unsuper_loss = 0.1*tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.ones(tf.shape(logits_syn), tf.float32)/len(real_train_set) ,logits=logits_syn))
+        tf.add_to_collection('losses', unsuper_loss)
         
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
+        total_loss = tf.add_n([cross_entropy_mean,unsuper_loss] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
         train_op = facenet.train(total_loss, global_step, args.optimizer, 
@@ -228,8 +259,7 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
                 # Train for one epoch
-                train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
-                    learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
+                train(args, sess, epoch, image_list, label_list, confidence_list, image_list_syn, label_list_syn, confidence_list_syn, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, image_paths_placeholder_syn, labels_placeholder_syn, confidence_placeholder_syn, learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step,
                     total_loss, train_op, summary_op, summary_writer, regularization_losses, args.learning_rate_schedule_file)
 
                 # Save variables and the metagraph if it doesn't exist already
@@ -237,10 +267,9 @@ def main(args):
 
                 # Evaluate on LFW
                 if args.lfw_dir:
-                    evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
-                        embeddings, label_batch, lfw_paths, confidence_list, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
+                    evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, image_paths_placeholder_syn, labels_placeholder_syn, confidence_placeholder_syn, phase_train_placeholder, batch_size_placeholder, embeddings_real, label_batch, lfw_paths, confidence_list, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
     return model_dir
-  
+
 def find_threshold(var, percentile):
     hist, bin_edges = np.histogram(var, 100)
     cdf = np.float32(np.cumsum(hist)) / np.sum(hist)
@@ -272,8 +301,7 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
 
     return filtered_dataset
   
-def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
-      learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
+def train(args, sess, epoch, image_list, label_list, confidence_list, image_list_syn, label_list_syn, confidence_list_syn, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, image_paths_placeholder_syn, labels_placeholder_syn, confidence_placeholder_syn, learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step,
       loss, train_op, summary_op, summary_writer, regularization_losses, learning_rate_schedule_file):
     batch_number = 0
     
@@ -286,12 +314,19 @@ def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequ
     label_epoch = np.array(label_list)[index_epoch]
     image_epoch = np.array(image_list)[index_epoch]
     confidence_epoch = np.array(confidence_list)[index_epoch]
+    label_epoch_syn = np.array(label_list_syn)[index_epoch]
+    image_epoch_syn = np.array(image_list_syn)[index_epoch]
+    confidence_epoch_syn = np.array(confidence_list_syn)[index_epoch]
     
     # Enqueue one epoch of image paths and labels
     confidence_array = np.expand_dims(np.array(confidence_epoch),1)
     labels_array = np.expand_dims(np.array(label_epoch),1)
     image_paths_array = np.expand_dims(np.array(image_epoch),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
+    confidence_array_syn = np.expand_dims(np.array(confidence_epoch_syn),1)
+    labels_array_syn = np.expand_dims(np.array(label_epoch_syn),1)
+    image_paths_array_syn = np.expand_dims(np.array(image_epoch_syn),1)
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array,
+                          image_paths_placeholder_syn: image_paths_array_syn, labels_placeholder_syn: labels_array_syn, confidence_placeholder_syn: confidence_array_syn})
 
     # Training loop
     train_time = 0
@@ -315,7 +350,7 @@ def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequ
     summary_writer.add_summary(summary, step)
     return step
 
-def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confidence_placeholder, image_paths_placeholder_syn, labels_placeholder_syn, confidence_placeholder_syn, phase_train_placeholder, batch_size_placeholder,
         embeddings, labels, image_paths, confidence_list, actual_issame, batch_size, nrof_folds, log_dir, step, summary_writer):
     start_time = time.time()
     # Run forward pass to calculate embeddings
@@ -325,7 +360,8 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confi
     confidence_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     labels_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     image_paths_array = np.expand_dims(np.array(image_paths),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array,
+            image_paths_placeholder_syn: image_paths_array, labels_placeholder_syn:  labels_array, confidence_placeholder_syn: confidence_array})
     
     embedding_size = embeddings.get_shape()[1]
     nrof_images = len(actual_issame)*2
@@ -391,6 +427,9 @@ def parse_arguments(argv):
         help='Load a pretrained model before training starts.')
     parser.add_argument('--data_dir', type=str,
         help='Path to the data directory containing aligned face patches. Multiple directories are separated with colon.',
+        default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
+    parser.add_argument('--syn_data_dir', type=str,
+        help='Path to the data directory containing synthetic face images. Multiple directories are separated with colon.',
         default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
     parser.add_argument('--model_def', type=str,
         help='Model definition. Points to a module containing the definition of the inference graph.', default='models.inception_resnet_light')
