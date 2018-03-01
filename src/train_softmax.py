@@ -227,9 +227,12 @@ def main(args):
 
         if args.pretrained_model:
             restore_vars = []
-            for var in tf.all_variables():
-                if not 'Logits/' in var.op.name:
-                    restore_vars.append(var)
+            if args.remove_softmax:
+                for var in tf.all_variables():
+                    if not 'Logits/' in var.op.name:
+                        restore_vars.append(var)
+            else:
+                restore_vars = tf.all_variables()
             restorer = tf.train.Saver(restore_vars)
 
 
@@ -277,7 +280,7 @@ def find_threshold(var, percentile):
     #plt.plot(bin_centers, cdf)
     threshold = np.interp(percentile*0.01, cdf, bin_centers)
     return threshold
-  
+
 def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class):
     with h5py.File(data_filename,'r') as f:
         distance_to_center = np.array(f.get('distance_to_center'))
@@ -300,11 +303,11 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
             del(filtered_dataset[i])
 
     return filtered_dataset
-  
+
 def train(args, sess, epoch, image_list, label_list, confidence_list, image_list_syn, label_list_syn, confidence_list_syn, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, image_paths_placeholder_syn, labels_placeholder_syn, confidence_placeholder_syn, learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step,
       loss, train_op, summary_op, summary_writer, regularization_losses, learning_rate_schedule_file):
     batch_number = 0
-    
+
     if args.learning_rate>0.0:
         lr = args.learning_rate
     else:
@@ -317,7 +320,7 @@ def train(args, sess, epoch, image_list, label_list, confidence_list, image_list
     label_epoch_syn = np.array(label_list_syn)[index_epoch]
     image_epoch_syn = np.array(image_list_syn)[index_epoch]
     confidence_epoch_syn = np.array(confidence_list_syn)[index_epoch]
-    
+
     # Enqueue one epoch of image paths and labels
     confidence_array = np.expand_dims(np.array(confidence_epoch),1)
     labels_array = np.expand_dims(np.array(label_epoch),1)
@@ -355,14 +358,14 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confi
     start_time = time.time()
     # Run forward pass to calculate embeddings
     print('Runnning forward pass on LFW images')
-    
+
     # Enqueue one epoch of image paths and labels
     confidence_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     labels_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     image_paths_array = np.expand_dims(np.array(image_paths),1)
     sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array,
             image_paths_placeholder_syn: image_paths_array, labels_placeholder_syn:  labels_array, confidence_placeholder_syn: confidence_array})
-    
+
     embedding_size = embeddings.get_shape()[1]
     nrof_images = len(actual_issame)*2
     assert nrof_images % batch_size == 0, 'The number of LFW images must be an integer multiple of the LFW batch size'
@@ -374,10 +377,10 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confi
         emb, lab = sess.run([embeddings, labels], feed_dict=feed_dict)
         lab_array[lab] = lab
         emb_array[lab] = emb
-        
+
     assert np.array_equal(lab_array, np.arange(nrof_images))==True, 'Wrong labels used for evaluation, possibly caused by training examples left in the input pipeline'
     _, _, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
-    
+
     print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
     print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
     lfw_time = time.time() - start_time
@@ -400,7 +403,7 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     save_time_variables = time.time() - start_time
     print('Variables saved in %.2f seconds' % save_time_variables)
     metagraph_filename = os.path.join(model_dir, 'model-%s.meta' % model_name)
-    save_time_metagraph = 0  
+    save_time_metagraph = 0
     if not os.path.exists(metagraph_filename):
         print('Saving metagraph')
         start_time = time.time()
@@ -412,12 +415,12 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     summary.value.add(tag='time/save_variables', simple_value=save_time_variables)
     summary.value.add(tag='time/save_metagraph', simple_value=save_time_metagraph)
     summary_writer.add_summary(summary, step)
-  
+
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--logs_base_dir', type=str, 
+
+    parser.add_argument('--logs_base_dir', type=str,
         help='Directory where to write event logs.', default='~/logs/facenet')
     parser.add_argument('--models_base_dir', type=str,
         help='Directory where to write trained models and checkpoints.', default='~/models/facenet')
@@ -425,6 +428,8 @@ def parse_arguments(argv):
         help='Upper bound on the amount of GPU memory that will be used by the process.', default=1.0)
     parser.add_argument('--pretrained_model', type=str,
         help='Load a pretrained model before training starts.')
+    parser.add_argument('--remove_softmax',
+        help='Load a pretrained model before training starts.' , action='store_true')
     parser.add_argument('--data_dir', type=str,
         help='Path to the data directory containing aligned face patches. Multiple directories are separated with colon.',
         default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
