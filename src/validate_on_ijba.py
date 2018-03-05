@@ -34,6 +34,7 @@ import numpy as np
 import argparse
 import facenet
 import lfw
+import bob.db.ijba
 import os
 import sys
 import math
