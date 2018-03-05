@@ -94,8 +94,9 @@ def inference2(images, images_syn, keep_probability, phase_train=True, weight_de
       images: The images to run inference on, dimensions batch_size x height x width x channels
       phase_train: True if batch normalization should operate in training mode
     """
+    endpoints = {}
     with tf.variable_scope('InceptionResnetV1_syn', 'InceptionResnetV1_syn', [images_syn], reuse=reuse):
-        endpoints = {}
+
         net_syn = conv(images_syn, 3, 64, 7, 7, 2, 2, 'SAME', 'conv1_7x7', phase_train=phase_train, use_batch_norm=True,
                        weight_decay=weight_decay)
         endpoints['conv1_syn'] = net_syn
@@ -109,9 +110,9 @@ def inference2(images, images_syn, keep_probability, phase_train=True, weight_de
         endpoints['conv3_3x3_syn'] = net_syn
         net_syn = mpool(net_syn, 3, 3, 2, 2, 'SAME', 'pool3')
         endpoints['pool3_syn'] = net_syn
+        net_syn = tf.split(net_syn,2)[1]
 
     with tf.variable_scope('InceptionResnetV1', 'InceptionResnetV1', [images], reuse=reuse):
-        endpoints = {}
         net = conv(images, 3, 64, 7, 7, 2, 2, 'SAME', 'conv1_7x7', phase_train=phase_train, use_batch_norm=True,
                    weight_decay=weight_decay)
         endpoints['conv1'] = net
