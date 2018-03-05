@@ -105,7 +105,7 @@ def main(args):
         index_queue = tf.train.range_input_producer(range_size, num_epochs=None,
                              shuffle=True, seed=None, capacity=32)
         
-        index_dequeue_op = index_queue.dequeue_many(args.batch_size*args.epoch_size*2, 'index_dequeue')
+        index_dequeue_op = index_queue.dequeue_many(args.batch_size*args.epoch_size, 'index_dequeue')
         
         learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')
 
@@ -132,7 +132,7 @@ def main(args):
                                     shared_name=None, name=None)
         enqueue_op = input_queue.enqueue_many([image_paths_placeholder, image_paths_placeholder2, labels_placeholder, confidence_placeholder,image_paths_placeholder_syn,labels_placeholder_syn,confidence_placeholder_syn], name='enqueue_op')
         
-        nrof_preprocess_threads = 1
+        nrof_preprocess_threads = 4
         images_and_labels = []
         for _ in range(nrof_preprocess_threads):
             filenames, filenames2, label, confidence, filenames_syn, label_syn, confidence_syn = input_queue.dequeue()
@@ -187,7 +187,7 @@ def main(args):
             imsplit0, imsplit1 = getimages2(filenames, filenames2)
             images_and_labels.append([imsplit0, imsplit1, label, confidence,getimages(filenames_syn), label_syn, confidence_syn])
 
-            image_batch,image_batch2, label_batch, confidence_batch, image_batch_syn, label_batch_syn, confidence_batch_syn = tf.train.batch_join(
+        image_batch,image_batch2, label_batch, confidence_batch, image_batch_syn, label_batch_syn, confidence_batch_syn = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
             shapes=[(args.image_size, args.image_size, 3),(args.image_size, args.image_size, 3), (), (),(args.image_size, args.image_size, 3),(),()], enqueue_many=True,
             capacity=4 * nrof_preprocess_threads * args.batch_size,
