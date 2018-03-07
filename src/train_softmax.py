@@ -223,7 +223,7 @@ def main(args):
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         embeddings_real, embeddings_syn = tf.split(embeddings,2)
-        transfer_loss = tf.sqrt(tf.reduce_mean((tf.split(endpoints['pool3_syn'],2)[0] - endpoints['pool3'])**2))
+        transfer_loss = 0.1*tf.sqrt(tf.reduce_mean((tf.split(endpoints['pool3_syn'],2)[0] - endpoints['pool3'])**2))
 
         # Add center loss
         if args.center_loss_factor>0.0:
@@ -240,16 +240,17 @@ def main(args):
             labels=label_batch, logits=logits_real, name='cross_entropy_per_example')
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
-        unsuper_loss = 0.1*tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.ones(tf.shape(logits_syn), tf.float32)/len(real_train_set) ,logits=logits_syn))
+        unsuper_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.ones(tf.shape(logits_syn), tf.float32)/len(real_train_set) ,logits=logits_syn))
         tf.add_to_collection('losses', unsuper_loss)
         
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([cross_entropy_mean,unsuper_loss,transfer_loss] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
+        total_loss = tf.add_n([cross_entropy_mean,unsuper_loss] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_op = facenet.train(total_loss, global_step, args.optimizer, 
-            learning_rate, args.moving_average_decay, tf.global_variables(), args.log_histograms)
+        side_vars = [v for v in tf.global_variables() if 'InceptionResnetV1_syn' in v.name]
+        train_op = facenet.train(total_loss,transfer_loss, global_step, args.optimizer,
+            learning_rate, args.moving_average_decay, tf.global_variables(),side_vars, args.log_histograms)
         
         # Create a saver
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=3)
