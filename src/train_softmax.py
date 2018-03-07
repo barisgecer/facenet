@@ -223,7 +223,7 @@ def main(args):
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         embeddings_real, embeddings_syn = tf.split(embeddings,2)
-        transfer_loss = 0.1*tf.sqrt(tf.reduce_mean((tf.split(endpoints['pool3_syn'],2)[0] - endpoints['pool3'])**2))
+        transfer_loss = tf.sqrt(tf.reduce_mean((tf.split(endpoints['pool3_syn'],2)[0] - endpoints['pool3'])**2))
 
         # Add center loss
         if args.center_loss_factor>0.0:
@@ -240,7 +240,7 @@ def main(args):
             labels=label_batch, logits=logits_real, name='cross_entropy_per_example')
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
-        unsuper_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.ones(tf.shape(logits_syn), tf.float32)/len(real_train_set) ,logits=logits_syn))
+        unsuper_loss = 0.1*tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.ones(tf.shape(logits_syn), tf.float32)/len(real_train_set) ,logits=logits_syn))
         tf.add_to_collection('losses', unsuper_loss)
         
         # Calculate the total losses
