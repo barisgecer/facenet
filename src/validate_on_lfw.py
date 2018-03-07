@@ -101,11 +101,11 @@ def parse_arguments(argv):
     parser.add_argument('model', type=str, 
         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf (.pb) file')
     parser.add_argument('--image_size', type=int,
-        help='Image size (height, width) in pixels.', default=160)
+        help='Image size (height, width) in pixels.', default=96)
     parser.add_argument('--lfw_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
     parser.add_argument('--lfw_file_ext', type=str,
-        help='The file extension for the LFW dataset.', default='png', choices=['jpg', 'png'])
+        help='The file extension for the LFW dataset.', default='jpg', choices=['jpg', 'png'])
     parser.add_argument('--lfw_nrof_folds', type=int,
         help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
     return parser.parse_args(argv)
