@@ -42,26 +42,28 @@ from scipy import interpolate
 
 def main(args):
 
-    pairs, template, labels, paths, folds = read_pairs(args.ijba_dir, args.ijba_pairs,args.ijba_nrof_folds)
-#    uniq_temp = np.unique( np.ndarray.flatten(np.array(pairs)))
+    pairs, template, im_labels, paths, folds, folds_temp = read_pairs(args.ijba_dir, args.ijba_pairs,args.ijba_nrof_folds)
+    np.concatenate([[template.T],[im_labels.T]],axis=0)
+    temp_labels = np.unique(np.vstack([template,im_labels]).T,axis=0)
+
+    actual_issame = []
+    for p in pairs:
+        ind1 = temp_labels[np.where(temp_labels[:,0] == p[0]),1]
+        ind2 = temp_labels[np.where(temp_labels[:,0] == p[1]),1]
+        actual_issame.extend(ind1==ind2)
+
+    paths = paths.astype(dtype=object)
+    for i in range(len(paths)):
+        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i])
+
+    #path_prefix = np.array([])
+    #for split in range(1, ijba_nrof_folds + 1)
+    #    path_prefix = np.vstack([path_prefix, np.matlib.repmat(),2,1)])
 
 
     with tf.Graph().as_default():
-
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.4)
         with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False)) as sess:
-
-            # Read the file containing the pairs used for testing
-            pairs = ijba.read_pairs(os.path.expanduser(args.ijba_pairs))
-            template = np.array(template)
-
-            actual_issame = []
-            for p in pairs:
-                ind1 = np.where(template == p[0])
-                ind2 = np.where(template==p[1])
-
-            # Get the paths for the corresponding images
-            paths, actual_issame = ijba.get_paths(os.path.expanduser(args.ijba_dir), pairs, args.ijba_file_ext)
 
             # Load the model
             facenet.load_model(args.model)
@@ -139,22 +141,24 @@ def get_paths(ijba_dir, pairs, file_ext):
 
 
 def read_pairs(ijba_dir,ijba_pairs,ijba_nrof_folds):
-    pairs = np.array([],dtype=int)
+    pairs =[]
     template = np.array([],dtype=int)
     labels = np.array([],dtype=int)
     paths = np.array([],dtype=str)
     folds = np.array([],dtype=int)
+    folds_temp = np.array([],dtype=int)
     for split in range(1,ijba_nrof_folds+1):
         comp_path = os.path.join(ijba_dir, ijba_pairs,'split'+str(split),'verify_comparisons_'+str(split)+'.csv')
         meta_path = os.path.join(ijba_dir, ijba_pairs, 'split' + str(split), 'verify_metadata_' + str(split) + '.csv')
         comp = np.genfromtxt(comp_path, dtype=int, defaultfmt='%d %d', delimiter=",")
-        pairs.extend(comp)
+        pairs.extend(comp.astype(dtype=int))
         meta = np.genfromtxt(meta_path, dtype=str, defaultfmt='%d %d %s', delimiter=",",skip_header=True)
         template = np.append(template,meta[:, [0]].astype(dtype=int))
         labels = np.append(labels, meta[:, [1]].astype(dtype=int))
-        paths = np.append(paths, meta[:, [2]].astype(dtype=int))
+        paths = np.append(paths, meta[:, [2]].astype(dtype=str))
         folds = np.append(folds, (np.zeros(len(comp),dtype=int)+split).tolist())
-    return pairs,template,labels,paths,folds
+        folds_temp = np.append(folds, (np.zeros(len(template),dtype=int)+split).tolist())
+    return np.array(pairs),template,labels,paths,folds,folds_temp
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
