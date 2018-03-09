@@ -39,6 +39,7 @@ import math
 from sklearn import metrics
 from scipy.optimize import brentq
 from scipy import interpolate
+from scipy import misc
 
 def main(args):
 
@@ -54,12 +55,18 @@ def main(args):
 
     paths = paths.astype(dtype=object)
     for i in range(len(paths)):
-        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i])
+        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i]).replace('.png','.jpg').replace('.jpeg','.jpg').replace('.JPEG','.jpg')
+
+    paths_unq, paths_ind, paths_inv = np.unique(paths,True,True)
 
     #path_prefix = np.array([])
     #for split in range(1, ijba_nrof_folds + 1)
     #    path_prefix = np.vstack([path_prefix, np.matlib.repmat(),2,1)])
-
+    mask = np.ones(len(paths_unq), dtype=bool)
+    for i in range(len(paths_unq)):
+        if not os.path.isfile(paths_unq[i]):
+            mask[i] = False
+    paths_unq_masked = paths_unq[mask]
 
     with tf.Graph().as_default():
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.4)
@@ -80,19 +87,20 @@ def main(args):
             # Run forward pass to calculate embeddings
             print('Runnning forward pass on ijba images')
             batch_size = args.ijba_batch_size
-            nrof_images = len(paths)
+            nrof_images = len(paths_unq_masked)
             nrof_batches = int(math.ceil(1.0*nrof_images / batch_size))
             emb_array = np.zeros((nrof_images, embedding_size))
             for i in range(nrof_batches):
                 start_index = i*batch_size
                 end_index = min((i+1)*batch_size, nrof_images)
-                paths_batch = paths[start_index:end_index]
-                images = facenet.load_data(paths_batch, False, False, image_size)
+                paths_batch = paths_unq_masked[start_index:end_index]
+                images = load_data(paths_batch, image_size)
                 feed_dict = { images_placeholder:images, phase_train_placeholder:False }
                 emb_array[start_index:end_index,:] = sess.run(embeddings, feed_dict=feed_dict)
 
-            tpr, fpr, accuracy, val, val_std, far = ijba.evaluate(emb_array,
-                                                                  actual_issame, nrof_folds=args.ijba_nrof_folds)
+            emb_array_avg = average_temp(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size)
+
+            tpr, fpr, accuracy, val, val_std, far = evaluate(emb_array_avg, actual_issame, nrof_folds=args.ijba_nrof_folds)
 
             print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
             print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
@@ -103,11 +111,49 @@ def main(args):
             print('Equal Error Rate (EER): %1.3f' % eer)
 
 
+def prewhiten(x):
+    mean = np.mean(x)
+    std = np.std(x)
+    std_adj = np.maximum(std, 1.0 / np.sqrt(x.size))
+    y = np.multiply(np.subtract(x, mean), 1 / std_adj)
+    return y
+def to_rgb(img):
+    w, h = img.shape
+    ret = np.empty((w, h, 3), dtype=np.uint8)
+    ret[:, :, 0] = ret[:, :, 1] = ret[:, :, 2] = img
+    return ret
+def load_data(image_paths, image_size, do_prewhiten=True):
+    nrof_samples = len(image_paths)
+    images = np.zeros((nrof_samples, image_size, image_size, 3))
+    for i in range(nrof_samples):
+        img = misc.imread(image_paths[i])
+        if img.ndim == 2:
+            img = to_rgb(img)
+        if do_prewhiten:
+            img = prewhiten(img)
+        images[i,:,:,:] = img
+    return images
+
+def average_temp(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size):
+    mask_inv = np.ones_like(mask) * -1
+    mask_inv[mask] = range(0, sum(mask == True))
+    template_mean = np.zeros([embedding_size, max(temp_labels[:, 0]) + 1])
+    for t in range(0, len(temp_labels)):
+        img_ind = template == temp_labels[t, 0]
+        t_ind = mask_inv[paths_inv[img_ind]]
+        t_emb = emb_array[t_ind[t_ind != -1]]
+        if len(t_emb) != 0:
+            template_mean[:, temp_labels[t, 0]] = np.mean(t_emb, 0)
+
+    embeddings = template_mean[:, pairs]
+    return np.swapaxes(embeddings, 0, 1)
+
+
 def evaluate(embeddings, actual_issame, nrof_folds=10):
     # Calculate evaluation metrics
     thresholds = np.arange(0, 4, 0.01)
-    embeddings1 = embeddings[0::2]
-    embeddings2 = embeddings[1::2]
+    embeddings1 = embeddings[:,:,0]
+    embeddings2 = embeddings[:,:,1]
     tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
                                                np.asarray(actual_issame), nrof_folds=nrof_folds)
     thresholds = np.arange(0, 4, 0.001)
@@ -157,7 +203,7 @@ def read_pairs(ijba_dir,ijba_pairs,ijba_nrof_folds):
         labels = np.append(labels, meta[:, [1]].astype(dtype=int))
         paths = np.append(paths, meta[:, [2]].astype(dtype=str))
         folds = np.append(folds, (np.zeros(len(comp),dtype=int)+split).tolist())
-        folds_temp = np.append(folds, (np.zeros(len(template),dtype=int)+split).tolist())
+        folds_temp = np.append(folds_temp, (np.zeros(len(meta[:, [0]]),dtype=int)+split).tolist())
     return np.array(pairs),template,labels,paths,folds,folds_temp
 
 def parse_arguments(argv):
