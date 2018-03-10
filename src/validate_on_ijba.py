@@ -154,12 +154,12 @@ def evaluate(embeddings, actual_issame, nrof_folds=10):
     thresholds = np.arange(0, 4, 0.01)
     embeddings1 = embeddings[:,:,0]
     embeddings2 = embeddings[:,:,1]
-    tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
-                                               np.asarray(actual_issame), nrof_folds=nrof_folds)
-    thresholds = np.arange(0, 4, 0.001)
+    #tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
+    #                                           np.asarray(actual_issame), nrof_folds=nrof_folds)
+    thresholds = np.concatenate([np.arange(0, 0.1, 0.001),np.arange(0.1, 4, 0.1)])
     val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
                                               np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
-    return tpr, fpr, accuracy, val, val_std, far
+    return 0, 0, 0, val, val_std, far
 
 
 def get_paths(ijba_dir, pairs, file_ext):
@@ -222,7 +222,7 @@ def parse_arguments(argv):
     parser.add_argument('--ijba_file_ext', type=str,
                         help='The file extension for the ijba dataset.', default='jpg', choices=['jpg', 'png'])
     parser.add_argument('--ijba_nrof_folds', type=int,
-                        help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
+                        help='Number of folds to use for cross validation. Mainly used for testing.', default=3)
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
