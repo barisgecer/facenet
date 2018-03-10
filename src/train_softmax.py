@@ -160,7 +160,7 @@ def main(args):
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size, 
             weight_decay=args.weight_decay)
         logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None, 
-                weights_initializer=tf.truncated_normal_initializer(stddev=0.1), 
+                weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                 weights_regularizer=slim.l2_regularizer(args.weight_decay),
                 scope='Logits', reuse=False)
 
@@ -237,7 +237,8 @@ def main(args):
 
                 # Evaluate on LFW
                 if args.lfw_dir:
-                    evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+                    if epoch%4 ==0:
+                        evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
                         embeddings, label_batch, lfw_paths, confidence_list, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
     return model_dir
   
