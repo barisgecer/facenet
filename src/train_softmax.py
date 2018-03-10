@@ -190,7 +190,7 @@ def main(args):
             learning_rate, args.moving_average_decay, tf.global_variables(), args.log_histograms)
         
         # Create a saver
-        saver = tf.train.Saver(tf.global_variables(), max_to_keep=3)
+        saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
 
         # Restore saver
 

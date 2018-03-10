@@ -327,7 +327,7 @@ class ImageClass():
   
 def get_dataset(paths, has_class_directories=True):
     dataset = []
-    for path in paths.split(';'):
+    for path in paths.split('*'):
         path_exp = os.path.expanduser(path)
         classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
         classes.sort()
