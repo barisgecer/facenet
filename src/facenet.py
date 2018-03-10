@@ -196,29 +196,41 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
             opt = tf.train.MomentumOptimizer(learning_rate, 0.9, use_nesterov=True)
         else:
             raise ValueError('Invalid optimization algorithm')
-    
-        grads = opt.compute_gradients(total_loss, update_gradient_vars)
-        
+
+        opt2 = tf.train.AdamOptimizer(learning_rate*0.1, beta1=0.9, beta2=0.999, epsilon=0.1)
+
+        vgg19_vars = []
+        logit_vars = []
+        for var in update_gradient_vars:
+            if not 'Logits/' in var.op.name:
+                vgg19_vars.append(var)
+            else:
+                logit_vars.append(var)
+
+        grads = opt.compute_gradients(total_loss, logit_vars)
+        grads2 = opt2.compute_gradients(total_loss, vgg19_vars)
+
     # Apply gradients.
-    apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
-  
+    apply_gradient_op = opt.apply_gradients(grads)
+    apply_gradient_op2 = opt2.apply_gradients(grads2, global_step=global_step)
+
     # Add histograms for trainable variables.
     if log_histograms:
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
-   
+
     # Add histograms for gradients.
     if log_histograms:
         for grad, var in grads:
             if grad is not None:
                 tf.summary.histogram(var.op.name + '/gradients', grad)
-  
+
     # Track the moving averages of all trainable variables.
     variable_averages = tf.train.ExponentialMovingAverage(
         moving_average_decay, global_step)
     variables_averages_op = variable_averages.apply(tf.trainable_variables())
-  
-    with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
+
+    with tf.control_dependencies([apply_gradient_op, apply_gradient_op2, variables_averages_op]):
         train_op = tf.no_op(name='train')
   
     return train_op
