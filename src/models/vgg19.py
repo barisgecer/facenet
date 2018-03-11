@@ -47,7 +47,7 @@ def inference(images, keep_probability, phase_train=True, weight_decay=0.0, bott
     # A function to get the weights of the VGG layers
     def vbbWeights(layerNumber):
         W = vgg19Layers[0][layerNumber][0][0][2][0][0]
-        W = tf.Variable(W)
+        W = tf.Variable(W,name=vgg19Layers[0][layerNumber][0][0][0][0])
         return W
 
     def vbbConstants(layerNumber):

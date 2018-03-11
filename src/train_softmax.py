@@ -181,16 +181,16 @@ def main(args):
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
 
-        unsuper_loss = 0.1 * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
+        unsuper_loss = 0.5 * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
             labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
         tf.add_to_collection('losses', unsuper_loss)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([cross_entropy_mean+unsuper_loss] + tf.unstack(regularization_losses),name='total_loss')
+        total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_op = facenet.train(total_loss, global_step, args.optimizer, 
+        train_op = facenet.train(total_loss,unsuper_loss, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, tf.global_variables(), args.log_histograms)
         
         # Create a saver

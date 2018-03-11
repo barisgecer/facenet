@@ -181,7 +181,7 @@ def _add_loss_summaries(total_loss):
   
     return loss_averages_op
 
-def train(total_loss, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True):
+def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True):
     # Generate moving averages of all losses and associated summaries.
     loss_averages_op = _add_loss_summaries(total_loss)
 
@@ -201,21 +201,27 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
             raise ValueError('Invalid optimization algorithm')
 
         opt2 = tf.train.AdamOptimizer(learning_rate*0.1, beta1=0.9, beta2=0.999, epsilon=0.1)
+        opt3 = tf.train.AdamOptimizer(learning_rate*0.1, beta1=0.9, beta2=0.999, epsilon=0.1)
 
-        vgg19_vars = []
+        conv_vars = []
+        fc_vars = []
         logit_vars = []
         for var in update_gradient_vars:
-            if not 'Logits/' in var.op.name:
-                vgg19_vars.append(var)
-            else:
+            if 'Logits/' in var.op.name:
                 logit_vars.append(var)
+            elif 'fc' in var.op.name:
+                fc_vars.append(var)
+            else:
+                conv_vars.append(var)
 
-        grads = opt.compute_gradients(total_loss, logit_vars)
-        grads2 = opt2.compute_gradients(total_loss, vgg19_vars)
+        grads = opt.compute_gradients(total_loss+syn_loss, logit_vars)
+        grads2 = opt2.compute_gradients(total_loss+syn_loss, fc_vars)
+        grads3 = opt3.compute_gradients(total_loss, conv_vars)
 
     # Apply gradients.
     apply_gradient_op = opt.apply_gradients(grads)
-    apply_gradient_op2 = opt2.apply_gradients(grads2, global_step=global_step)
+    apply_gradient_op2 = opt2.apply_gradients(grads2)
+    apply_gradient_op3 = opt3.apply_gradients(grads3, global_step=global_step)
 
     # Add histograms for trainable variables.
     if log_histograms:
@@ -233,7 +239,7 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
         moving_average_decay, global_step)
     variables_averages_op = variable_averages.apply(tf.trainable_variables())
 
-    with tf.control_dependencies([apply_gradient_op, apply_gradient_op2, variables_averages_op]):
+    with tf.control_dependencies([apply_gradient_op, apply_gradient_op2,apply_gradient_op3, variables_averages_op]):
         train_op = tf.no_op(name='train')
   
     return train_op
