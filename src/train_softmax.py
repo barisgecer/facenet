@@ -64,7 +64,7 @@ def main(args):
 
     np.random.seed(seed=args.seed)
     random.seed(args.seed)
-    train_set, nrof_classes = facenet.get_dataset(args.data_dir)
+    train_set, nrof_classes, nrof_classes_syn = facenet.get_dataset(args.data_dir)
     if args.filter_filename:
         train_set = filter_dataset(train_set, os.path.expanduser(args.filter_filename), 
             args.filter_percentile, args.filter_min_nrof_images_per_class)
@@ -89,11 +89,12 @@ def main(args):
         global_step = tf.Variable(0, trainable=False)
         
         # Get a list of image paths and their labels
-        image_list, label_list, confidence_list = facenet.get_image_paths_and_labels(train_set)
+        image_list, label_list, confidence_list, label_list_syn = facenet.get_image_paths_and_labels(train_set)
         assert len(image_list)>0, 'The dataset should not be empty'
         
         # Create a queue that produces indices into the image_list and label_list 
         labels = ops.convert_to_tensor(label_list, dtype=tf.int32)
+        labels_syn = ops.convert_to_tensor(label_list_syn, dtype=tf.int32)
         range_size = array_ops.shape(labels)[0]
         index_queue = tf.train.range_input_producer(range_size, num_epochs=None,
                              shuffle=True, seed=None, capacity=32)
@@ -110,18 +111,20 @@ def main(args):
 
         labels_placeholder = tf.placeholder(tf.int64, shape=(None,1), name='labels')
 
+        labels_syn_placeholder = tf.placeholder(tf.int64, shape=(None,1), name='labels_syn')
+
         confidence_placeholder = tf.placeholder(tf.float32, shape=(None,1), name='confidence')
         
         input_queue = data_flow_ops.FIFOQueue(capacity=100000,
-                                    dtypes=[tf.string, tf.int64, tf.float32],
-                                    shapes=[(1,), (1,), (1,)],
+                                    dtypes=[tf.string, tf.int64, tf.int64, tf.float32],
+                                    shapes=[(1,), (1,), (1,), (1,)],
                                     shared_name=None, name=None)
-        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder, confidence_placeholder], name='enqueue_op')
+        enqueue_op = input_queue.enqueue_many([image_paths_placeholder, labels_placeholder, labels_syn_placeholder, confidence_placeholder], name='enqueue_op')
         
         nrof_preprocess_threads = 4
         images_and_labels = []
         for _ in range(nrof_preprocess_threads):
-            filenames, label, confidence = input_queue.dequeue()
+            filenames, label, label_syn, confidence = input_queue.dequeue()
             images = []
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
@@ -138,16 +141,17 @@ def main(args):
                 #pylint: disable=no-member
                 image.set_shape((args.image_size, args.image_size, 3))
                 images.append(tf.image.per_image_standardization(image))
-            images_and_labels.append([images, label, confidence])
+            images_and_labels.append([images, label, label_syn, confidence])
     
-        image_batch, label_batch, confidence_batch = tf.train.batch_join(
+        image_batch, label_batch,label_batch_syn, confidence_batch = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
-            shapes=[(args.image_size, args.image_size, 3), (), ()], enqueue_many=True,
+            shapes=[(args.image_size, args.image_size, 3), (),(), ()], enqueue_many=True,
             capacity=4 * nrof_preprocess_threads * args.batch_size,
             allow_smaller_final_batch=True)
         image_batch = tf.identity(image_batch, 'image_batch')
         image_batch = tf.identity(image_batch, 'input')
         label_batch = tf.identity(label_batch, 'label_batch')
+        label_batch_syn = tf.identity(label_batch, 'label_batch_syn')
         confidence_batch = tf.identity(confidence_batch, 'confidence_batch')
         
         print('Total number of classes: %d' % nrof_classes)
@@ -163,6 +167,10 @@ def main(args):
                 weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                 weights_regularizer=slim.l2_regularizer(args.weight_decay),
                 scope='Logits', reuse=False)
+        logits_syn = slim.fully_connected(prelogits, nrof_classes_syn, activation_fn=None,
+                weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
+                weights_regularizer=slim.l2_regularizer(args.weight_decay),
+                scope='Logits_syn', reuse=False)
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
 
@@ -181,16 +189,18 @@ def main(args):
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
 
-        unsuper_loss = 0.5 * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
-            labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
-        tf.add_to_collection('losses', unsuper_loss)
+        # Calculate the average cross entropy loss across the batch
+        cross_entropy_syn = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=label_batch_syn, logits=logits_syn, name='cross_entropy_per_example_syn')
+        cross_entropy_mean_syn = tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
+        tf.add_to_collection('losses_syn', cross_entropy_mean_syn)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_op = facenet.train(total_loss,unsuper_loss, global_step, args.optimizer,
+        train_op = facenet.train(total_loss,cross_entropy_mean_syn, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, tf.global_variables(), args.log_histograms)
         
         # Create a saver
@@ -232,7 +242,7 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
                 # Train for one epoch
-                train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
+                train(args, sess, epoch, image_list, label_list,label_list_syn, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, labels_syn_placeholder, confidence_placeholder,
                     learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
                     total_loss, train_op, summary_op, summary_writer, regularization_losses, args.learning_rate_schedule_file)
 
@@ -277,7 +287,7 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
 
     return filtered_dataset
   
-def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder,
+def train(args, sess, epoch, image_list, label_list,label_list_syn, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder,labels_syn_placeholder, confidence_placeholder,
       learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
       loss, train_op, summary_op, summary_writer, regularization_losses, learning_rate_schedule_file):
     batch_number = 0
@@ -289,14 +299,16 @@ def train(args, sess, epoch, image_list, label_list, confidence_list, index_dequ
 
     index_epoch = sess.run(index_dequeue_op)
     label_epoch = np.array(label_list)[index_epoch]
+    label_epoch_syn = np.array(label_list_syn)[index_epoch]
     image_epoch = np.array(image_list)[index_epoch]
     confidence_epoch = np.array(confidence_list)[index_epoch]
     
     # Enqueue one epoch of image paths and labels
     confidence_array = np.expand_dims(np.array(confidence_epoch),1)
     labels_array = np.expand_dims(np.array(label_epoch),1)
+    labels_array_syn = np.expand_dims(np.array(label_epoch_syn),1)
     image_paths_array = np.expand_dims(np.array(image_epoch),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array,labels_syn_placeholder:labels_array_syn, confidence_placeholder: confidence_array})
 
     # Training loop
     train_time = 0

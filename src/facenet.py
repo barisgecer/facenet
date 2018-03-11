@@ -90,15 +90,20 @@ def center_loss(features, label, alfa, nrof_classes):
 def get_image_paths_and_labels(dataset):
     image_paths_flat = []
     labels_flat = []
+    labels_flat_syn = []
     confidence_flat = []
+    syn_class =0
     for i in range(len(dataset)):
         image_paths_flat += dataset[i].image_paths
         if dataset[i].name == '-1':
             labels_flat += [1] * len(dataset[i].image_paths)
+            labels_flat_syn += [syn_class] * len(dataset[i].image_paths)
+            syn_class +=1
         else:
             labels_flat += [i] * len(dataset[i].image_paths)
+            labels_flat_syn += [1] * len(dataset[i].image_paths)
         confidence_flat += dataset[i].confidence
-    return image_paths_flat, labels_flat, confidence_flat
+    return image_paths_flat, labels_flat, confidence_flat, labels_flat_syn
 
 def shuffle_examples(image_paths, labels):
     shuffle_list = list(zip(image_paths, labels))
@@ -201,13 +206,12 @@ def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_ave
             raise ValueError('Invalid optimization algorithm')
 
         opt2 = tf.train.AdamOptimizer(learning_rate*0.1, beta1=0.9, beta2=0.999, epsilon=0.1)
-        opt3 = tf.train.AdamOptimizer(learning_rate*0.1, beta1=0.9, beta2=0.999, epsilon=0.1)
 
         conv_vars = []
         fc_vars = []
         logit_vars = []
         for var in update_gradient_vars:
-            if 'Logits/' in var.op.name:
+            if 'Logits' in var.op.name:
                 logit_vars.append(var)
             elif 'fc' in var.op.name:
                 fc_vars.append(var)
@@ -215,13 +219,11 @@ def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_ave
                 conv_vars.append(var)
 
         grads = opt.compute_gradients(total_loss+syn_loss, logit_vars)
-        grads2 = opt2.compute_gradients(total_loss+syn_loss, fc_vars)
-        grads3 = opt3.compute_gradients(total_loss, conv_vars)
+        grads2 = opt2.compute_gradients(total_loss+syn_loss, fc_vars+conv_vars)
 
     # Apply gradients.
     apply_gradient_op = opt.apply_gradients(grads)
-    apply_gradient_op2 = opt2.apply_gradients(grads2)
-    apply_gradient_op3 = opt3.apply_gradients(grads3, global_step=global_step)
+    apply_gradient_op2 = opt2.apply_gradients(grads2, global_step=global_step)
 
     # Add histograms for trainable variables.
     if log_histograms:
@@ -239,7 +241,7 @@ def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_ave
         moving_average_decay, global_step)
     variables_averages_op = variable_averages.apply(tf.trainable_variables())
 
-    with tf.control_dependencies([apply_gradient_op, apply_gradient_op2,apply_gradient_op3, variables_averages_op]):
+    with tf.control_dependencies([apply_gradient_op, apply_gradient_op2, variables_averages_op]):
         train_op = tf.no_op(name='train')
   
     return train_op
@@ -363,14 +365,16 @@ def get_dataset(paths, has_class_directories=True):
             class_name = classes[i]
             facedir = os.path.join(path_exp, class_name)
             image_paths = get_image_paths(facedir)
-            if nrof_classes_ == 0:
+            if confidence == 1.0:
                 dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
                 prev_class = class_name
             else:
                 dataset.append(ImageClass('-1', image_paths, [confidence for i in range(len(image_paths))]))
-        if nrof_classes_ ==0:
+        if confidence == 1.0:
             nrof_classes_=nrof_classes
-    return dataset, nrof_classes_
+        else:
+            nrof_classes_syn=nrof_classes
+    return dataset, nrof_classes_, nrof_classes_syn
 
 def get_image_paths(facedir):
     image_paths = []
