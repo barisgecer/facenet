@@ -93,7 +93,10 @@ def get_image_paths_and_labels(dataset):
     confidence_flat = []
     for i in range(len(dataset)):
         image_paths_flat += dataset[i].image_paths
-        labels_flat += [i] * len(dataset[i].image_paths)
+        if dataset[i].name == '-1':
+            labels_flat += [1] * len(dataset[i].image_paths)
+        else:
+            labels_flat += [i] * len(dataset[i].image_paths)
         confidence_flat += dataset[i].confidence
     return image_paths_flat, labels_flat, confidence_flat
 
@@ -339,13 +342,14 @@ class ImageClass():
   
 def get_dataset(paths, has_class_directories=True):
     dataset = []
+    nrof_classes_ = 0
     for path in paths.split('*'):
         path_exp = os.path.expanduser(path)
         classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
         classes.sort()
         nrof_classes = len(classes)
-        if os.path.isfile(path + '\\confidence_scores.csv'):
-            confidence = 0.5 #TODO: read the file
+        if os.path.isfile(os.path.join(path, 'confidence_scores.csv')):
+            confidence = 0.0 #TODO: read the file
         else:
             confidence = 1.0
 
@@ -353,8 +357,14 @@ def get_dataset(paths, has_class_directories=True):
             class_name = classes[i]
             facedir = os.path.join(path_exp, class_name)
             image_paths = get_image_paths(facedir)
-            dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
-    return dataset
+            if nrof_classes_ == 0:
+                dataset.append(ImageClass(class_name, image_paths, [confidence for i in range(len(image_paths))]))
+                prev_class = class_name
+            else:
+                dataset.append(ImageClass('-1', image_paths, [confidence for i in range(len(image_paths))]))
+        if nrof_classes_ ==0:
+            nrof_classes_=nrof_classes
+    return dataset, nrof_classes_
 
 def get_image_paths(facedir):
     image_paths = []

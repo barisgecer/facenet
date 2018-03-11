@@ -64,11 +64,11 @@ def main(args):
 
     np.random.seed(seed=args.seed)
     random.seed(args.seed)
-    train_set = facenet.get_dataset(args.data_dir)
+    train_set, nrof_classes = facenet.get_dataset(args.data_dir)
     if args.filter_filename:
         train_set = filter_dataset(train_set, os.path.expanduser(args.filter_filename), 
             args.filter_percentile, args.filter_min_nrof_images_per_class)
-    nrof_classes = len(train_set)
+    #nrof_classes = len(train_set)
     
     print('Model directory: %s' % model_dir)
     print('Log directory: %s' % log_dir)
@@ -159,7 +159,7 @@ def main(args):
         prelogits, _ = network.inference(image_batch, args.keep_probability,
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size, 
             weight_decay=args.weight_decay)
-        logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None, 
+        logits = slim.fully_connected(prelogits, nrof_classes, activation_fn=None,
                 weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                 weights_regularizer=slim.l2_regularizer(args.weight_decay),
                 scope='Logits', reuse=False)
@@ -180,10 +180,14 @@ def main(args):
             labels=label_batch, logits=logits, name='cross_entropy_per_example')
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
-        
+
+        unsuper_loss = 0.1 * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
+            labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
+        tf.add_to_collection('losses', unsuper_loss)
+
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(tf.reduce_mean(confidence_batch)*regularization_losses),name='total_loss')
+        total_loss = tf.add_n([cross_entropy_mean+unsuper_loss] + tf.unstack(regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
         train_op = facenet.train(total_loss, global_step, args.optimizer, 
