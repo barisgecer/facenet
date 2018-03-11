@@ -192,7 +192,7 @@ def main(args):
         # Calculate the average cross entropy loss across the batch
         cross_entropy_syn = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=label_batch_syn, logits=logits_syn, name='cross_entropy_per_example_syn')
-        cross_entropy_mean_syn = tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
+        cross_entropy_mean_syn = 0.1*tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
         tf.add_to_collection('losses_syn', cross_entropy_mean_syn)
 
         # Calculate the total losses
