@@ -242,7 +242,7 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
                 # Train for one epoch
-                train(args, sess, epoch, image_list, label_list,label_list_syn, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, labels_syn_placeholder, confidence_placeholder,
+                train(args, sess, epoch, image_list, label_list, label_list_syn, confidence_list, index_dequeue_op, enqueue_op, image_paths_placeholder, labels_placeholder, labels_syn_placeholder, confidence_placeholder,
                     learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, global_step, 
                     total_loss, train_op, summary_op, summary_writer, regularization_losses, args.learning_rate_schedule_file)
 
@@ -252,7 +252,7 @@ def main(args):
                 # Evaluate on LFW
                 if args.lfw_dir:
                     if epoch%4 ==0:
-                        evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+                        evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,labels_syn_placeholder, confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
                         embeddings, label_batch, lfw_paths, confidence_list, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer)
     return model_dir
   
@@ -332,7 +332,7 @@ def train(args, sess, epoch, image_list, label_list,label_list_syn, confidence_l
     summary_writer.add_summary(summary, step)
     return step
 
-def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
+def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,labels_syn_placeholder,confidence_placeholder, phase_train_placeholder, batch_size_placeholder,
         embeddings, labels, image_paths, confidence_list, actual_issame, batch_size, nrof_folds, log_dir, step, summary_writer):
     start_time = time.time()
     # Run forward pass to calculate embeddings
@@ -342,7 +342,7 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder,confi
     confidence_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     labels_array = np.expand_dims(np.arange(0,len(image_paths)),1)
     image_paths_array = np.expand_dims(np.array(image_paths),1)
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, confidence_placeholder: confidence_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array,labels_syn_placeholder:labels_array, confidence_placeholder: confidence_array})
     
     embedding_size = embeddings.get_shape()[1]
     nrof_images = len(actual_issame)*2
