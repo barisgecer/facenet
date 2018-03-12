@@ -225,7 +225,7 @@ def get_paths(ijba_dir, pairs, file_ext):
 #    return np.sum(np.correlate(a, b, 'full'))
 
 def softmax_distance(embeddings1, embeddings2,beta):
-
+    beta = - beta
     all_dist = []
     for i in range(len(embeddings1)):
         #dist2 = np.zeros([len(embeddings1[i]),len(embeddings2[i])])
@@ -235,6 +235,7 @@ def softmax_distance(embeddings1, embeddings2,beta):
 
         dist2 = cdist(np.array(embeddings1[i]),np.array(embeddings2[i]),'cosine')
         all_dist.append(np.sum(np.multiply(dist2,np.exp(beta*dist2)))/np.sum(np.exp(beta*dist2)))
+        #all_dist.append(np.mean(cdist(np.array(embeddings1[i]),np.array(embeddings2[i]))))
     return all_dist
 
 def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, folds):
@@ -379,7 +380,7 @@ def parse_arguments(argv):
     parser.add_argument('--ijba_file_ext', type=str,
                         help='The file extension for the ijba dataset.', default='jpg', choices=['jpg', 'png'])
     parser.add_argument('--ijba_nrof_folds', type=int,
-                        help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
+                        help='Number of folds to use for cross validation. Mainly used for testing.', default=3)
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
