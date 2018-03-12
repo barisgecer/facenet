@@ -182,11 +182,11 @@ def average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask,
     return embeddings1, embeddings2
 
 
-def evaluate(embeddings1, embeddings2, actual_issame, folds, folds_temp):
+def evaluate(embeddings1, embeddings2, actual_issame, folds):
     # Calculate evaluation metrics
     thresholds = np.arange(0, 4, 0.01)
     tpr, fpr, accuracy = calculate_roc(thresholds, embeddings1, embeddings2,
-                                               np.asarray(actual_issame), folds, folds_temp)
+                                               np.asarray(actual_issame), folds)
     thresholds = np.arange(0, 4, 0.001)
     val, val_std, far = calculate_val(thresholds, embeddings1, embeddings2,
                                               np.asarray(actual_issame), 1e-2, folds)
