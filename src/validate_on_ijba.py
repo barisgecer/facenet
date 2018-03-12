@@ -40,6 +40,8 @@ from sklearn import metrics
 from scipy.optimize import brentq
 from scipy import interpolate
 from scipy import misc
+#from sklearn.model_selection import KFold
+from scipy.spatial.distance import cdist
 
 def main(args):
 
@@ -105,10 +107,11 @@ def main(args):
             embeddings1, embeddings2 = average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size,paths)
 
             print('ROC curves')
-            tpr, fpr, accuracy, val, val_std, far = evaluate(embeddings1, embeddings2, actual_issame, nrof_folds=args.ijba_nrof_folds)
+            tpr, fpr, accuracy, val, val_std, far, val2, val_std2, far2 = evaluate(embeddings1, embeddings2, actual_issame, folds)
 
             print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
             print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
+            print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val2, val_std2, far2))
 
             auc = metrics.auc(fpr, tpr)
             print('Area Under Curve (AUC): %1.3f' % auc)
@@ -179,15 +182,18 @@ def average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask,
     return embeddings1, embeddings2
 
 
-def evaluate(embeddings1, embeddings2, actual_issame, nrof_folds=10):
+def evaluate(embeddings1, embeddings2, actual_issame, folds, folds_temp):
     # Calculate evaluation metrics
     thresholds = np.arange(0, 4, 0.01)
     tpr, fpr, accuracy = calculate_roc(thresholds, embeddings1, embeddings2,
-                                               np.asarray(actual_issame), nrof_folds=nrof_folds)
-    thresholds = np.concatenate([np.arange(0, 0.1, 0.001),np.arange(0.1, 4, 0.1)])
+                                               np.asarray(actual_issame), folds, folds_temp)
+    thresholds = np.arange(0, 4, 0.001)
     val, val_std, far = calculate_val(thresholds, embeddings1, embeddings2,
-                                              np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
-    return tpr, fpr, accuracy, val, val_std, far
+                                              np.asarray(actual_issame), 1e-2, folds)
+    thresholds = np.arange(0, 4, 0.001)
+    val2, val_std2, far2 = calculate_val(thresholds, embeddings1, embeddings2,
+                                              np.asarray(actual_issame), 1e-3, folds)
+    return tpr, fpr, accuracy, val, val_std, far,val2, val_std2, far2
 
 
 def get_paths(ijba_dir, pairs, file_ext):
@@ -213,23 +219,47 @@ def get_paths(ijba_dir, pairs, file_ext):
 
     return path_list, issame_list
 
+#def ncc(a,b):
+#    a = (a - np.mean(a)) / (np.std(a) * len(a))
+#    b = (b - np.mean(b)) / (np.std(b))
+#    return np.sum(np.correlate(a, b, 'full'))
 
-def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, nrof_folds=10):
-    assert (embeddings1.shape[0] == embeddings2.shape[0])
-    assert (embeddings1.shape[1] == embeddings2.shape[1])
-    nrof_pairs = min(len(actual_issame), embeddings1.shape[0])
+def softmax_distance(embeddings1, embeddings2,beta):
+
+    all_dist = []
+    for i in range(len(embeddings1)):
+        #dist2 = np.zeros([len(embeddings1[i]),len(embeddings2[i])])
+        #for j in range(len(embeddings1[i])):
+        #    for k in range(len(embeddings2[i])):
+        #        dist2[j,k] = ncc(embeddings1[i][j],embeddings2[i][k])
+
+        dist2 = cdist(np.array(embeddings1[i]),np.array(embeddings2[i]),'cosine')
+        all_dist.append(np.sum(np.multiply(dist2,np.exp(beta*dist2)))/np.sum(np.exp(beta*dist2)))
+    return all_dist
+
+def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, folds):
+    assert (len(embeddings1) == len(embeddings2))
+    nrof_pairs = len(actual_issame)
     nrof_thresholds = len(thresholds)
-    k_fold = KFold(n_splits=nrof_folds, shuffle=False)
+    nrof_folds=len(np.unique(folds))
+    #k_fold = KFold(n_splits=nrof_folds, shuffle=False)
 
     tprs = np.zeros((nrof_folds, nrof_thresholds))
     fprs = np.zeros((nrof_folds, nrof_thresholds))
     accuracy = np.zeros((nrof_folds))
 
-    diff = np.subtract(embeddings1, embeddings2)
-    dist = np.sum(np.square(diff), 1)
-    indices = np.arange(nrof_pairs)
+    #diff = np.subtract(embeddings1, embeddings2)
+    #dist = np.sum(np.square(diff), 1)
+    dist_all = np.zeros([len(embeddings1),21])
+    for beta in range(21):
+        dist_all[:,beta] = softmax_distance(embeddings1,embeddings2,beta)
+    dist = np.mean(dist_all,1)
 
-    for fold_idx, (train_set, test_set) in enumerate(k_fold.split(indices)):
+    #indices = np.arange(nrof_pairs)
+    #for fold_idx, (train_set, test_set) in enumerate(k_fold.split(indices)):
+    for fold_idx in range(nrof_folds):
+        train_set = np.where(folds!=fold_idx+1)[0]
+        test_set = np.where(folds!=fold_idx+1)[0]
 
         # Find the best threshold for the fold
         acc_train = np.zeros((nrof_thresholds))
@@ -262,21 +292,28 @@ def calculate_accuracy(threshold, dist, actual_issame):
     return tpr, fpr, acc
 
 
-def calculate_val(thresholds, embeddings1, embeddings2, actual_issame, far_target, nrof_folds=10):
-    assert (embeddings1.shape[0] == embeddings2.shape[0])
-    assert (embeddings1.shape[1] == embeddings2.shape[1])
-    nrof_pairs = min(len(actual_issame), embeddings1.shape[0])
+def calculate_val(thresholds, embeddings1, embeddings2, actual_issame, far_target, folds):
+    assert (len(embeddings1) == len(embeddings2))
+    nrof_pairs = min(len(actual_issame), len(embeddings1))
     nrof_thresholds = len(thresholds)
-    k_fold = KFold(n_splits=nrof_folds, shuffle=False)
+    nrof_folds=len(np.unique(folds))
+    #k_fold = KFold(n_splits=nrof_folds, shuffle=False)
 
     val = np.zeros(nrof_folds)
     far = np.zeros(nrof_folds)
 
-    diff = np.subtract(embeddings1, embeddings2)
-    dist = np.sum(np.square(diff), 1)
-    indices = np.arange(nrof_pairs)
+    #diff = np.subtract(embeddings1, embeddings2)
+    #dist = np.sum(np.square(diff), 1)
+    dist_all = np.zeros([len(embeddings1),21])
+    for beta in range(21):
+        dist_all[:,beta] = softmax_distance(embeddings1,embeddings2,beta)
+    dist = np.mean(dist_all,1)
 
-    for fold_idx, (train_set, test_set) in enumerate(k_fold.split(indices)):
+    #indices = np.arange(nrof_pairs)
+    #for fold_idx, (train_set, test_set) in enumerate(k_fold.split(indices)):
+    for fold_idx in range(nrof_folds):
+        train_set = np.where(folds!=fold_idx+1)[0]
+        test_set = np.where(folds!=fold_idx+1)[0]
 
         # Find the threshold that gives FAR = far_target
         far_train = np.zeros(nrof_thresholds)
