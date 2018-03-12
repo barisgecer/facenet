@@ -45,7 +45,7 @@ def main(args):
   
     with tf.Graph().as_default():
 
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.4)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
         with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False)) as sess:
             
             # Read the file containing the pairs used for testing
@@ -79,7 +79,8 @@ def main(args):
                 images = facenet.load_data(paths_batch, False, False, image_size)
                 feed_dict = { images_placeholder:images, phase_train_placeholder:False }
                 emb_array[start_index:end_index,:] = sess.run(embeddings, feed_dict=feed_dict)
-        
+
+            print('ROC curves')
             tpr, fpr, accuracy, val, val_std, far = lfw.evaluate(emb_array, 
                 actual_issame, nrof_folds=args.lfw_nrof_folds)
 

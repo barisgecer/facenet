@@ -49,9 +49,9 @@ def main(args):
 
     actual_issame = []
     for p in pairs:
-        ind1 = temp_labels[np.where(temp_labels[:,0] == p[0]),1]
-        ind2 = temp_labels[np.where(temp_labels[:,0] == p[1]),1]
-        actual_issame.extend(ind1==ind2)
+        ind1 = temp_labels[np.where(temp_labels[:,0] == p[0]),1][0][0]
+        ind2 = temp_labels[np.where(temp_labels[:,0] == p[1]),1][0][0]
+        actual_issame.append(ind1==ind2)
 
     paths = paths.astype(dtype=object)
     for i in range(len(paths)):
@@ -69,7 +69,7 @@ def main(args):
     paths_unq_masked = paths_unq[mask]
 
     with tf.Graph().as_default():
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.4)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
         with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False)) as sess:
 
             # Load the model
@@ -100,6 +100,7 @@ def main(args):
 
             emb_array_avg = average_temp(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size)
 
+            print('ROC curves')
             tpr, fpr, accuracy, val, val_std, far = evaluate(emb_array_avg, actual_issame, nrof_folds=args.ijba_nrof_folds)
 
             print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
@@ -154,12 +155,12 @@ def evaluate(embeddings, actual_issame, nrof_folds=10):
     thresholds = np.arange(0, 4, 0.01)
     embeddings1 = embeddings[:,:,0]
     embeddings2 = embeddings[:,:,1]
-    #tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
-    #                                           np.asarray(actual_issame), nrof_folds=nrof_folds)
+    tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
+                                               np.asarray(actual_issame), nrof_folds=nrof_folds)
     thresholds = np.concatenate([np.arange(0, 0.1, 0.001),np.arange(0.1, 4, 0.1)])
     val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
                                               np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
-    return 0, 0, 0, val, val_std, far
+    return tpr, fpr, accuracy, val, val_std, far
 
 
 def get_paths(ijba_dir, pairs, file_ext):
@@ -222,7 +223,7 @@ def parse_arguments(argv):
     parser.add_argument('--ijba_file_ext', type=str,
                         help='The file extension for the ijba dataset.', default='jpg', choices=['jpg', 'png'])
     parser.add_argument('--ijba_nrof_folds', type=int,
-                        help='Number of folds to use for cross validation. Mainly used for testing.', default=3)
+                        help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
