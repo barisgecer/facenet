@@ -54,8 +54,12 @@ def main(args):
         actual_issame.append(ind1==ind2)
 
     paths = paths.astype(dtype=object)
+    #paths2 = paths.copy()
+    #for i in range(len(paths2)):
+    #    paths2[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths2[i])
+
     for i in range(len(paths)):
-        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i]).replace('.png','.jpg').replace('.jpeg','.jpg').replace('.JPEG','.jpg')
+        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i]).replace('.png','.jpg').replace('.jpeg','.jpg').replace('.JPEG','.jpg').replace('.PNG','.jpg').replace('.JPG','.jpg')
 
     paths_unq, paths_ind, paths_inv = np.unique(paths,True,True)
 
@@ -139,12 +143,22 @@ def average_temp(emb_array, temp_labels, template, pairs, paths_inv, mask, embed
     mask_inv = np.ones_like(mask) * -1
     mask_inv[mask] = range(0, sum(mask == True))
     template_mean = np.zeros([embedding_size, max(temp_labels[:, 0]) + 1])
+    ts= []
     for t in range(0, len(temp_labels)):
         img_ind = template == temp_labels[t, 0]
         t_ind = mask_inv[paths_inv[img_ind]]
         t_emb = emb_array[t_ind[t_ind != -1]]
         if len(t_emb) != 0:
             template_mean[:, temp_labels[t, 0]] = np.mean(t_emb, 0)
+        else:
+            ts.append(t)
+    # this is to copy not found images
+    # paths2 is before replacing the extensions
+    #for t_find in temp_labels[ts, 0]:
+    #    for i in np.where(template == t_find)[0]:
+    #        img = misc.imread(paths2[i].replace(args.ijba_dir,'D:\data\IJB\IJB-A'))
+    #        img = misc.imresize(img,[108,108])
+    #        misc.imsave(paths[i],img[12:,6:-6])
 
     embeddings = template_mean[:, pairs]
     return np.swapaxes(embeddings, 0, 1)
