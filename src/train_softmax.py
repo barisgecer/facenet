@@ -94,7 +94,6 @@ def main(args):
         
         # Create a queue that produces indices into the image_list and label_list 
         labels = ops.convert_to_tensor(label_list, dtype=tf.int32)
-        labels_syn = ops.convert_to_tensor(label_list_syn, dtype=tf.int32)
         range_size = array_ops.shape(labels)[0]
         index_queue = tf.train.range_input_producer(range_size, num_epochs=None,
                              shuffle=True, seed=None, capacity=32)
@@ -137,12 +136,12 @@ def main(args):
                     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
                 if args.random_flip:
                     image = tf.image.random_flip_left_right(image)
-    
+
                 #pylint: disable=no-member
                 image.set_shape((args.image_size, args.image_size, 3))
                 images.append(tf.image.per_image_standardization(image))
             images_and_labels.append([images, label, label_syn, confidence])
-    
+
         image_batch, label_batch,label_batch_syn, confidence_batch = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
             shapes=[(args.image_size, args.image_size, 3), (),(), ()], enqueue_many=True,
@@ -214,9 +213,12 @@ def main(args):
 
         if args.pretrained_model:
             restore_vars = []
-            for var in tf.all_variables():
-                if not 'Logits/' in var.op.name:
-                    restore_vars.append(var)
+            if args.remove_softmax:
+                for var in tf.all_variables():
+                    if not 'Logits/' in var.op.name:
+                        restore_vars.append(var)
+            else:
+                restore_vars = tf.all_variables()
             restorer = tf.train.Saver(restore_vars)
 
 
@@ -410,6 +412,8 @@ def parse_arguments(argv):
         help='Upper bound on the amount of GPU memory that will be used by the process.', default=1.0)
     parser.add_argument('--pretrained_model', type=str,
         help='Load a pretrained model before training starts.')
+    parser.add_argument('--remove_softmax',
+        help='Load a pretrained model before training starts.' , action='store_true')
     parser.add_argument('--data_dir', type=str,
         help='Path to the data directory containing aligned face patches. Multiple directories are separated with colon.',
         default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
@@ -471,7 +475,7 @@ def parse_arguments(argv):
         help='Learning rate decay factor.', default=0.0)
     parser.add_argument('--lambda_S', type=float,
         help='Learning rate decay factor.', default=0.0)
- 
+
     # Parameters for validation on LFW
     parser.add_argument('--lfw_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
