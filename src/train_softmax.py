@@ -192,15 +192,19 @@ def main(args):
         # Calculate the average cross entropy loss across the batch
         cross_entropy_syn = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=label_batch_syn, logits=logits_syn, name='cross_entropy_per_example_syn')
-        cross_entropy_mean_syn = 0.1*tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
+        cross_entropy_mean_syn = args.lambda_S * tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
         tf.add_to_collection('losses_syn', cross_entropy_mean_syn)
+
+        unsuper_loss = args.lambda_K * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
+            labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
+        tf.add_to_collection('losses', unsuper_loss)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         total_loss = tf.add_n([cross_entropy_mean] + tf.unstack(regularization_losses),name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_op = facenet.train(total_loss,cross_entropy_mean_syn, global_step, args.optimizer,
+        train_op = facenet.train(total_loss,cross_entropy_mean_syn+unsuper_loss, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, tf.global_variables(), args.log_histograms)
         
         # Create a saver
@@ -461,6 +465,12 @@ def parse_arguments(argv):
         help='Keep only the percentile images closed to its class center', default=100.0)
     parser.add_argument('--filter_min_nrof_images_per_class', type=int,
         help='Keep only the classes with this number of examples or more', default=0)
+
+
+    parser.add_argument('--lambda_K', type=float,
+        help='Learning rate decay factor.', default=0.0)
+    parser.add_argument('--lambda_S', type=float,
+        help='Learning rate decay factor.', default=0.0)
  
     # Parameters for validation on LFW
     parser.add_argument('--lfw_pairs', type=str,
