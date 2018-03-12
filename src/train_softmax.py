@@ -239,7 +239,8 @@ def main(args):
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
                 restorer.restore(sess, pretrained_model)
-                sess.run(tf.assign(global_step,0))
+                if args.remove_softmax:
+                    sess.run(tf.assign(global_step,0))
 
             # Training and validation loop
             print('Running training')
