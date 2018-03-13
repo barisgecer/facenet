@@ -4,19 +4,19 @@ is calculated and plotted. Both the model metagraph and the model parameters nee
 in the same directory, and the metagraph should have the extension '.meta'.
 """
 # MIT License
-# 
+#
 # Copyright (c) 2016 David Sandberg
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -40,39 +40,45 @@ from sklearn import metrics
 from scipy.optimize import brentq
 from scipy import interpolate
 from scipy import misc
+import matplotlib.pyplot as plt
 #from sklearn.model_selection import KFold
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import pdist
+import pickle
+import scipy.io
+from glob import glob
 
 def main(args):
 
-    pairs, template, im_labels, paths, folds, folds_temp = read_pairs(args.ijba_dir, args.ijba_pairs,args.ijba_nrof_folds)
-    np.concatenate([[template.T],[im_labels.T]],axis=0)
-    temp_labels = np.unique(np.vstack([template,im_labels]).T,axis=0)
+    root = args.ijba_dir
+    labels = []
+    if os.path.isfile(root +"/list.txt"):
+        with open(root +"/list.txt", "rb") as fp:
+            paths = pickle.load(fp)
+        with open(root +"/labels.txt", "rb") as fp:
+            labels = pickle.load(fp)
+    else:
+        for ext in ["jpg", "png"]:
+            paths = sorted(glob("{}/*/*.{}".format(root, ext)))
+            if len(paths) != 0:
+                with open(root +"/list.txt", "wb") as fp:
+                    pickle.dump(paths, fp)
 
-    actual_issame = []
-    for p in pairs:
-        ind1 = temp_labels[np.where(temp_labels[:,0] == p[0]),1][0][0]
-        ind2 = temp_labels[np.where(temp_labels[:,0] == p[1]),1][0][0]
-        actual_issame.append(ind1==ind2)
+                for im in paths:
+                    labels.append(int(im.replace('\\', '/').split('/')[-2]))
+                with open(root +"/labels.txt", "wb") as fp:
+                    pickle.dump(labels, fp)
 
-    paths = paths.astype(dtype=object)
-    #paths2 = paths.copy()
-    #for i in range(len(paths2)):
-    #    paths2[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths2[i])
+                break
 
-    for i in range(len(paths)):
-        paths[i] = os.path.join(args.ijba_dir, 'IJB-A_11_face_images', 'split'+str(folds_temp[i]),paths[i]).replace('.png','.jpg').replace('.jpeg','.jpg').replace('.JPEG','.jpg').replace('.PNG','.jpg').replace('.JPG','.jpg')
-
-    paths_unq, paths_ind, paths_inv = np.unique(paths,True,True)
-
-    #path_prefix = np.array([])
-    #for split in range(1, ijba_nrof_folds + 1)
-    #    path_prefix = np.vstack([path_prefix, np.matlib.repmat(),2,1)])
-    mask = np.ones(len(paths_unq), dtype=bool)
-    for i in range(len(paths_unq)):
-        if not os.path.isfile(paths_unq[i]):
-            mask[i] = False
-    paths_unq_masked = paths_unq[mask]
+    paths = np.array(paths, dtype=str)
+    labels = np.array(labels, dtype=int)
+    size = args.n
+    np.random.seed(args.seed)
+    samples = np.random.choice(len(labels), size=[15000000,2],)
+    actual_issame = labels[samples[:,0]]==labels[samples[:,1]]
+    pos = samples[np.where(actual_issame == True)[0][0:size],:]
+    neg = samples[np.where(actual_issame == False)[0][0:size],:]
+    paths_unq_masked = paths[np.concatenate([np.ndarray.flatten(pos),np.ndarray.flatten(neg)])]
 
     with tf.Graph().as_default():
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.6)
@@ -104,19 +110,21 @@ def main(args):
                 feed_dict = { images_placeholder:images, phase_train_placeholder:False }
                 emb_array[start_index:end_index,:] = sess.run(embeddings, feed_dict=feed_dict)
 
-            embeddings1, embeddings2 = average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size,paths)
 
-            print('ROC curves')
-            tpr, fpr, accuracy, val, val_std, far, val2, val_std2, far2 = evaluate(embeddings1, embeddings2, actual_issame, folds)
+            embeddings1 = emb_array[0::2]
+            embeddings2 = emb_array[1::2]
+            diff = np.subtract(embeddings1, embeddings2)
+            dist = np.sum(np.square(diff), 1)
+            dist_pos = dist[0:size]
+            dist_neg = dist[size:]
+            print('Positives: %1.3f+-%1.3f' % (np.mean(dist_pos), np.std(dist_pos)))
+            print('Negatives: %1.3f+-%1.3f' % (np.mean(dist_neg), np.std(dist_neg)))
 
-            print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
-            print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
-            print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val2, val_std2, far2))
+            scipy.io.savemat('hist.mat',{'dist_pos':dist_pos,'dist_neg':dist_neg})
 
-            auc = metrics.auc(fpr, tpr)
-            print('Area Under Curve (AUC): %1.3f' % auc)
-            eer = brentq(lambda x: 1. - x - interpolate.interp1d(fpr, tpr)(x), 0., 1.)
-            print('Equal Error Rate (EER): %1.3f' % eer)
+            plt.hist(dist_pos, bins='auto',histtype = 'step')
+            plt.hist(dist_neg, bins='auto',color="skyblue",histtype = 'step')
+            plt.hist((dist_pos,dist_neg), bins=10,range=(0,2.5))
 
 
 def prewhiten(x):
@@ -139,7 +147,7 @@ def load_data(image_paths, image_size, do_prewhiten=True):
             img = to_rgb(img)
         if do_prewhiten:
             img = prewhiten(img)
-        images[i,:,:,:] = img
+        images[i,:,:,:] = img[6:102,6:102,:]
     return images
 
 def average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask, embedding_size,paths):
@@ -182,11 +190,11 @@ def average_temp_video(emb_array, temp_labels, template, pairs, paths_inv, mask,
     return embeddings1, embeddings2
 
 
-def evaluate(embeddings1, embeddings2, actual_issame, folds):
+def evaluate(embeddings1, embeddings2, actual_issame, folds, folds_temp):
     # Calculate evaluation metrics
     thresholds = np.arange(0, 4, 0.01)
     tpr, fpr, accuracy = calculate_roc(thresholds, embeddings1, embeddings2,
-                                               np.asarray(actual_issame), folds)
+                                               np.asarray(actual_issame), folds, folds_temp)
     thresholds = np.arange(0, 4, 0.001)
     val, val_std, far = calculate_val(thresholds, embeddings1, embeddings2,
                                               np.asarray(actual_issame), 1e-2, folds)
@@ -225,7 +233,7 @@ def get_paths(ijba_dir, pairs, file_ext):
 #    return np.sum(np.correlate(a, b, 'full'))
 
 def softmax_distance(embeddings1, embeddings2,beta):
-    beta = - beta
+
     all_dist = []
     for i in range(len(embeddings1)):
         #dist2 = np.zeros([len(embeddings1[i]),len(embeddings2[i])])
@@ -235,7 +243,6 @@ def softmax_distance(embeddings1, embeddings2,beta):
 
         dist2 = cdist(np.array(embeddings1[i]),np.array(embeddings2[i]),'cosine')
         all_dist.append(np.sum(np.multiply(dist2,np.exp(beta*dist2)))/np.sum(np.exp(beta*dist2)))
-        #all_dist.append(np.mean(cdist(np.array(embeddings1[i]),np.array(embeddings2[i]))))
     return all_dist
 
 def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, folds):
@@ -379,8 +386,10 @@ def parse_arguments(argv):
                         help='The file containing the pairs to use for validation.', default='IJB-A_11_sets')
     parser.add_argument('--ijba_file_ext', type=str,
                         help='The file extension for the ijba dataset.', default='jpg', choices=['jpg', 'png'])
-    parser.add_argument('--ijba_nrof_folds', type=int,
-                        help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
+    parser.add_argument('--seed', type=int,
+                        help='RNG seed', default=10)
+    parser.add_argument('--n', type=int,
+                        help='number of samples', default=100)
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
