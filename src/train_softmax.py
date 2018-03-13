@@ -166,10 +166,11 @@ def main(args):
                 weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                 weights_regularizer=slim.l2_regularizer(args.weight_decay),
                 scope='Logits', reuse=False)
-        logits_syn = slim.fully_connected(prelogits, nrof_classes_syn, activation_fn=None,
-                weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                weights_regularizer=slim.l2_regularizer(args.weight_decay),
-                scope='Logits_syn', reuse=False)
+        if nrof_classes_syn>0:
+            logits_syn = slim.fully_connected(prelogits, nrof_classes_syn, activation_fn=None,
+                    weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
+                    weights_regularizer=slim.l2_regularizer(args.weight_decay),
+                    scope='Logits_syn', reuse=False)
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
 
@@ -188,15 +189,18 @@ def main(args):
         cross_entropy_mean = tf.reduce_mean(confidence_batch*cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
 
-        # Calculate the average cross entropy loss across the batch
-        cross_entropy_syn = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=label_batch_syn, logits=logits_syn, name='cross_entropy_per_example_syn')
-        cross_entropy_mean_syn = tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
-        tf.add_to_collection('losses_syn', cross_entropy_mean_syn)
+        cross_entropy_mean_syn = 0
+        unsuper_loss = 0
+        if nrof_classes_syn > 0:
+            # Calculate the average cross entropy loss across the batch
+            cross_entropy_syn = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=label_batch_syn, logits=logits_syn, name='cross_entropy_per_example_syn')
+            cross_entropy_mean_syn = tf.reduce_mean((1.0-confidence_batch)*cross_entropy_syn, name='cross_entropy_syn')
+            tf.add_to_collection('losses_syn', cross_entropy_mean_syn)
 
-        unsuper_loss = args.lambda_K * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
-            labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
-        tf.add_to_collection('losses', unsuper_loss)
+            unsuper_loss = args.lambda_K * tf.reduce_mean((1.0-confidence_batch)*tf.nn.softmax_cross_entropy_with_logits(
+                labels=tf.ones(tf.shape(logits), tf.float32) / nrof_classes, logits=logits))
+            tf.add_to_collection('losses', unsuper_loss)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)

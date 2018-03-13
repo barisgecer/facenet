@@ -351,6 +351,7 @@ class ImageClass():
 def get_dataset(paths, has_class_directories=True):
     dataset = []
     nrof_classes_ = 0
+    nrof_classes_syn = 0
     for path in paths.split('*'):
         path_exp = os.path.expanduser(path)
         classes = [name for name in os.listdir(path_exp) if os.path.isdir(os.path.join(path_exp, name))]
