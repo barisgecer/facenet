@@ -186,7 +186,7 @@ def _add_loss_summaries(total_loss):
   
     return loss_averages_op
 
-def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True):
+def train(total_loss,cross_entropy_mean_syn,unsuper_loss,lambda_S, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True):
     # Generate moving averages of all losses and associated summaries.
     loss_averages_op = _add_loss_summaries(total_loss)
 
@@ -218,8 +218,8 @@ def train(total_loss,syn_loss, global_step, optimizer, learning_rate, moving_ave
             else:
                 conv_vars.append(var)
 
-        grads = opt.compute_gradients(total_loss+syn_loss, logit_vars)
-        grads2 = opt2.compute_gradients(total_loss+syn_loss, fc_vars+conv_vars)
+        grads = opt.compute_gradients(total_loss+cross_entropy_mean_syn+unsuper_loss, logit_vars)
+        grads2 = opt2.compute_gradients(total_loss+cross_entropy_mean_syn*lambda_S+unsuper_loss, fc_vars+conv_vars)
 
     # Apply gradients.
     apply_gradient_op = opt.apply_gradients(grads)
