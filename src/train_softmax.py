@@ -219,7 +219,7 @@ def main(args):
             restore_vars = []
             if args.remove_softmax:
                 for var in tf.all_variables():
-                    if not 'Logits/' in var.op.name:
+                    if (not 'Logits/' in var.op.name) and (not 'Logits_syn/' in var.op.name):
                         restore_vars.append(var)
             else:
                 restore_vars = tf.all_variables()
@@ -496,4 +496,5 @@ def parse_arguments(argv):
   
 
 if __name__ == '__main__':
+    #time.sleep(60*60*3)
     main(parse_arguments(sys.argv[1:]))
